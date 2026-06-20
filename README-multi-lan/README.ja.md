@@ -25,7 +25,6 @@ Threadline は対応 AI サイトの会話を取得し、ブラウザ内の Inde
 | Branch view | プロンプト編集や再試行を平坦な時系列ではなく分岐パスとして表示します。 |
 | Auto / Manual save | Auto は即保存、Manual は確認してから IndexedDB に保存します。 |
 | Recall Result panel | 入力欄の上に top-k memory を表示し、選択した原文だけを注入します。 |
-| Import / Export | フルバックアップ、単一 session graph、各プロバイダー export に対応します。 |
 
 ## Installation
 
@@ -77,28 +76,6 @@ Threadline stores data in browser extension storage:
 | Offscreen document | ローカル embedding 推論を実行します。 |
 
 `AIMemoryDB` は既存のローカルデータとの互換性のため意図的に保持しています。
-
-Main `memories` fields include `id`, `role`, `content`, `provider`, `sessionId`, `timestamp`, `turnIndex`, `roundIndex`, `branchIndex`, `branchId`, `pathId`, `parentMessageId`, `chunkIndex`, `parentId`, `embedding`, `hasEmbedding`, and `metadata`.
-
-## Recall and Chunking
-
-Threadline uses hybrid retrieval:
-
-```text
-query -> local embedding -> vector search with time decay
-      -> BM25 keyword search
-      -> reciprocal rank fusion
-      -> top-k Recall results
-```
-
-Long messages are chunked into 500 characters with 75-character overlap before embedding. Memory Graph merges chunks back into logical messages for display.
-
-## Import and Export
-
-- Full Threadline backups use `metadata.app = "Threadline"` and a `payload` array.
-- Legacy `PersonalAIMemoryLayer` backups remain import-compatible.
-- Memory Graph exports one session as `ThreadlineSessionGraph`.
-- Provider imports support ChatGPT, Claude, Gemini Takeout, and Grok. Perplexity is captured by visiting threads.
 
 ## Privacy
 

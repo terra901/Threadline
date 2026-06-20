@@ -25,7 +25,6 @@ Dieses Projekt basiert auf [marswangyang/personal-ai-memory](https://github.com/
 | Branch view | Zeigt Prompt-Bearbeitungen und Wiederholungen als alternative Pfade. |
 | Auto / Manual save | Auto speichert sofort; Manual lässt dich vor dem Speichern prüfen. |
 | Recall Result panel | Zeigt top-k Memories über dem Eingabefeld und injiziert nur ausgewählten Quelltext. |
-| Import / Export | Unterstützt vollständige Backups, Einzelsession-Export und Provider-Exports. |
 
 ## Installation
 
@@ -77,28 +76,6 @@ Threadline speichert Daten im lokalen Erweiterungsspeicher:
 | Offscreen document | Führt lokale Embedding-Inferenz aus. |
 
 `AIMemoryDB` bleibt absichtlich erhalten, um bestehende lokale Installationen nicht zu brechen.
-
-Wichtige Felder in `memories`: `id`, `role`, `content`, `provider`, `sessionId`, `timestamp`, `turnIndex`, `roundIndex`, `branchIndex`, `branchId`, `pathId`, `parentMessageId`, `chunkIndex`, `parentId`, `embedding`, `hasEmbedding` und `metadata`.
-
-## Recall und Chunking
-
-Threadline nutzt hybride Suche:
-
-```text
-query -> local embedding -> vector search with time decay
-      -> BM25 keyword search
-      -> reciprocal rank fusion
-      -> top-k Recall results
-```
-
-Lange Nachrichten werden vor dem Embedding in 500-Zeichen-Chunks mit 75 Zeichen Überlappung geteilt. Memory Graph führt Chunks für die Anzeige wieder zu logischen Nachrichten zusammen.
-
-## Import und Export
-
-- Vollständige Threadline-Backups verwenden `metadata.app = "Threadline"` und ein `payload`-Array.
-- Legacy-Backups mit `PersonalAIMemoryLayer` bleiben kompatibel.
-- Memory Graph exportiert eine Session als `ThreadlineSessionGraph`.
-- Provider-Importe unterstützen ChatGPT, Claude, Gemini Takeout und Grok. Perplexity wird durch Besuch der Threads erfasst.
 
 ## Datenschutz
 
