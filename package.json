@@ -1,0 +1,90 @@
+{
+  "name": "threadline",
+  "displayName": "Threadline",
+  "version": "0.0.8",
+  "description": "Save, search, recall, and map AI conversations locally in your browser.",
+  "author": "terra901",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/terra901/Threadline.git"
+  },
+  "homepage": "https://github.com/terra901/Threadline#readme",
+  "bugs": {
+    "url": "https://github.com/terra901/Threadline/issues"
+  },
+  "scripts": {
+    "dev": "plasmo dev",
+    "build": "plasmo build",
+    "build:prod": "plasmo build --target=chrome-mv3-prod",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@plasmohq/storage": "^1.13.0",
+    "@xenova/transformers": "^2.17.2",
+    "dexie": "^4.0.10",
+    "lucide-react": "^0.575.0",
+    "minisearch": "^7.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.1",
+    "@types/chrome": "^0.0.323",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.6.2",
+    "plasmo": "^0.90.4",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "@swc/core",
+      "esbuild",
+      "less",
+      "lmdb",
+      "msgpackr-extract",
+      "protobufjs",
+      "sharp"
+    ]
+  },
+  "manifest": {
+    "host_permissions": [
+      "https://chat.openai.com/*",
+      "https://chatgpt.com/*",
+      "https://claude.ai/*",
+      "https://gemini.google.com/*",
+      "https://www.perplexity.ai/*",
+      "https://grok.com/*"
+    ],
+    "permissions": [
+      "unlimitedStorage",
+      "tabs",
+      "scripting",
+      "offscreen",
+      "activeTab"
+    ],
+    "content_security_policy": {
+      "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+    },
+    "action": {
+      "default_title": "Threadline"
+    },
+    "web_accessible_resources": [
+      {
+        "resources": [
+          "assets/icon.png",
+          "memory-float-ui*.js"
+        ],
+        "matches": [
+          "<all_urls>"
+        ]
+      }
+    ]
+  }
+}

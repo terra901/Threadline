@@ -1,0 +1,77 @@
+name: Issue Report
+description: Report errors or unexpected behavior to help us improve.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report! Please provide as much detail as possible to help us quickly locate and fix the issue.
+  
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Clearly and concisely describe what the problem is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Please list the exact steps to reproduce the issue.
+      placeholder: |
+        1. Click on '...'
+        2. Type '...'
+        3. Scroll down to '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension Version
+      description: Which version of the extension are you using? (You can check this on your browser's extensions management page)
+      placeholder: e.g., 1.0.2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      description: Select the browser you were using when the issue occurred.
+      options:
+        - Google Chrome
+        - Microsoft Edge
+        - Brave
+        - Other (Please specify in the description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System (OS)
+      description: Select your operating system.
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - ChromeOS
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots-logs
+    attributes:
+      label: Screenshots / Console Logs
+      description: If applicable, drag and drop screenshots here, or paste error messages from the browser developer tools (F12 -> Console).

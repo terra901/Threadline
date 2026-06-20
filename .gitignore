@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+build/
+dist/
+.plasmo/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+CHANGELOG.md
+
+# Local project notes
+chen_change/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.tmp
+
+# Testing
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+specs/
+docs/
+.cursor/
+.claude/
+.specify/
+
+# Embedding models
+assets/models/
+
+.worktrees/
