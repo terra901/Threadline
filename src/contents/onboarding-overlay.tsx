@@ -18,6 +18,12 @@ import type { PlasmoCSConfig } from 'plasmo'
 import { LANG_NAMES, translations } from '../i18n/translations'
 import type { LangCode } from '../i18n/translations'
 import { detectDefaultLang, loadLangFromChrome, readLangFromLocalStorage, writeLangToLocalStorage, saveLangToChrome, LANG_STORAGE_KEY } from '../i18n/lang-storage'
+import {
+  safeStorageLocalGet,
+  safeStorageLocalRemove,
+  safeStorageLocalSet,
+  safeStorageOnChanged,
+} from '../utils/extension-context'
 
 export const config: PlasmoCSConfig = {
   matches: [
@@ -86,19 +92,11 @@ function OnboardingOverlay() {
       writeLangToLocalStorage(next)
     }
 
-    try {
-      chrome.storage.onChanged.addListener(onChanged)
-    } catch {
-      // ignore
-    }
+    const removeLanguageListener = safeStorageOnChanged(onChanged)
 
     return () => {
       cancelled = true
-      try {
-        chrome.storage.onChanged.removeListener(onChanged)
-      } catch {
-        // ignore
-      }
+      removeLanguageListener()
     }
   }, [lang])
 
@@ -117,7 +115,7 @@ function OnboardingOverlay() {
   }, [step])
 
   useEffect(() => {
-    chrome.storage.local.get([
+    safeStorageLocalGet([
       'onboarding_overlay_dismissed',
       'onboarding_step2_active',
       'onboarding_step3_active',
@@ -161,13 +159,12 @@ function OnboardingOverlay() {
       }
     }
 
-    chrome.storage.onChanged.addListener(handler)
-    return () => chrome.storage.onChanged.removeListener(handler)
+    return safeStorageOnChanged(handler)
   }, [])
 
   const dismissForever = () => {
-    chrome.storage.local.set({ onboarding_overlay_dismissed: true })
-    chrome.storage.local.remove(['onboarding_step2_active', 'onboarding_step3_active'])
+    safeStorageLocalSet({ onboarding_overlay_dismissed: true })
+    safeStorageLocalRemove(['onboarding_step2_active', 'onboarding_step3_active'])
     setVisible(false)
     setTimeout(() => setDismissed(true), 400)
   }

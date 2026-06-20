@@ -10,6 +10,8 @@
  *   stopOnboardingHighlight()            — call when step is done / button clicked
  */
 
+import { safeStorageLocalGet, safeStorageOnChanged } from './extension-context'
+
 const OVERLAY_ID = 'ai-memory-onboarding-overlay'
 const KEYFRAMES_ID = 'ai-memory-onboarding-keyframes'
 
@@ -189,13 +191,13 @@ function startOnboardingHighlightWhenReady(buttonId: string): void {
  */
 export function watchOnboardingStep3(buttonId: string): void {
   // Check current state on load
-  chrome.storage.local.get('onboarding_step3_active', (r) => {
+  safeStorageLocalGet('onboarding_step3_active', (r) => {
     if (r['onboarding_step3_active']) {
       startOnboardingHighlightWhenReady(buttonId)
     }
   })
 
-  chrome.storage.onChanged.addListener((changes, area) => {
+  safeStorageOnChanged((changes, area) => {
     if (area !== 'local') return
     if ('onboarding_step3_active' in changes) {
       const newVal = changes['onboarding_step3_active']?.newValue

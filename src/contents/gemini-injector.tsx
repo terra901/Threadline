@@ -14,6 +14,10 @@ import { watchOnboardingStep3 } from "../utils/onboarding-highlight";
 import { handleRecallClick as sharedHandleRecallClick } from "../utils/recall-helpers";
 import { createRecallButton as sharedCreateRecallButton } from "../utils/recall-button";
 import type { DomMessage } from "../types/messages";
+import {
+  safeRuntimeOnMessage,
+  safeRuntimeSendMessage,
+} from "../utils/extension-context";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://gemini.google.com/*"],
@@ -311,7 +315,7 @@ function getPageTitle(): string {
 
 function sendGeminiDomSync(domMessages: DomMessage[]): void {
   if (!domMessages.length) return;
-  chrome.runtime.sendMessage(
+  safeRuntimeSendMessage(
     {
       type: "DOM_SYNC",
       payload: {
@@ -320,13 +324,6 @@ function sendGeminiDomSync(domMessages: DomMessage[]): void {
         url: window.location.href,
         manual: true,
       },
-    },
-    () => {
-      try {
-        void chrome.runtime.lastError;
-      } catch {
-        /* ignore */
-      }
     },
   );
 }
@@ -523,7 +520,7 @@ function maybeSyncConversation(): void {
   _activeContainerObserver = watchForNewContainers(conversationId);
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+safeRuntimeOnMessage((message, _sender, sendResponse) => {
   if (message?.type !== "REQUEST_DOM_SYNC_NOW") return false;
   const conversationId = extractGeminiConversationId();
   if (conversationId) runDomSync(conversationId);

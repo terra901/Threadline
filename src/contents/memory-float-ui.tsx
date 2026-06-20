@@ -5,6 +5,7 @@ import {
   FloatingMemoryPanel,
   openMemoryPanelExternally,
 } from "../popup/components/FloatingMemoryPanel";
+import { safeRuntimeOnMessage } from "../utils/extension-context";
 
 export const config: PlasmoCSConfig = {
   matches: [
@@ -37,7 +38,7 @@ const bodyObserver = new MutationObserver(() => {
   }
 });
 
-chrome.runtime.onMessage.addListener(
+safeRuntimeOnMessage(
   (msg: { type?: string }, _sender, sendResponse) => {
     if (msg?.type === "OPEN_MEMORY_PANEL") {
       mountFloatUI();

@@ -1,4 +1,5 @@
 import type { ExtensionMessage, ExtensionMessageResponse } from '../types/messages'
+import { safeRuntimeSendMessage } from './extension-context'
 
 /**
  * Type-safe wrapper around chrome.runtime.sendMessage.
@@ -8,13 +9,18 @@ export function sendMessage<R extends ExtensionMessageResponse>(
   message: ExtensionMessage
 ): Promise<R> {
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response: R) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message ?? 'Unknown runtime error'))
+    const sent = safeRuntimeSendMessage<R>(message, (response, error) => {
+      if (error) {
+        reject(new Error(error))
+        return
+      }
+      if (!response) {
+        reject(new Error('No response from background script'))
         return
       }
       resolve(response)
     })
+    if (!sent) reject(new Error('Extension context is unavailable'))
   })
 }
 
@@ -23,8 +29,5 @@ export function sendMessage<R extends ExtensionMessageResponse>(
  * Swallows any chrome.runtime.lastError silently (fire-and-forget).
  */
 export function sendMessageFireAndForget(message: ExtensionMessage): void {
-  chrome.runtime.sendMessage(message, () => {
-    // Consume lastError to prevent unhandled error logging
-    void chrome.runtime.lastError
-  })
+  safeRuntimeSendMessage(message)
 }

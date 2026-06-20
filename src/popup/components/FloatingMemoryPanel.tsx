@@ -12,6 +12,12 @@ import type { LangCode } from "../../i18n/translations";
 import { inferSessionIdFromUrl } from "../../utils/session-url";
 import type { GetCaptureModeResponse, StatusUpdate } from "../../types/messages";
 import { APP_DISPLAY_NAME } from "../../constants/branding";
+import {
+  safeRuntimeGetURL,
+  safeRuntimeOnMessage,
+  safeRuntimeSendMessage,
+  safeStorageOnChanged,
+} from "../../utils/extension-context";
 
 // ── SVG Icons ──────────────────────────────────────────────────────────────────
 
@@ -214,7 +220,7 @@ function FloatingMemoryPanelInner() {
   const { width: panelMaxWidth, height: panelMaxHeight } = useViewportClamp();
 
   useEffect(() => {
-    chrome.runtime.sendMessage({ type: "GET_CAPTURE_MODE" }, (response: GetCaptureModeResponse | undefined) => {
+    safeRuntimeSendMessage<GetCaptureModeResponse>({ type: "GET_CAPTURE_MODE" }, (response) => {
       if (response?.payload?.mode) setCaptureMode(response.payload.mode);
     });
     const messageHandler = (message: unknown) => {
@@ -228,11 +234,11 @@ function FloatingMemoryPanelInner() {
       const next = changes[CAPTURE_MODE_STORAGE_KEY]?.newValue;
       if (isCaptureMode(next)) setCaptureMode(next);
     };
-    chrome.runtime.onMessage.addListener(messageHandler);
-    chrome.storage.onChanged.addListener(storageHandler);
+    const removeMessageListener = safeRuntimeOnMessage(messageHandler);
+    const removeStorageListener = safeStorageOnChanged(storageHandler);
     return () => {
-      chrome.runtime.onMessage.removeListener(messageHandler);
-      chrome.storage.onChanged.removeListener(storageHandler);
+      removeMessageListener();
+      removeStorageListener();
     };
   }, []);
 
@@ -241,9 +247,9 @@ function FloatingMemoryPanelInner() {
       typeof window !== "undefined"
         ? inferSessionIdFromUrl(window.location.href)
         : undefined;
-    chrome.runtime.sendMessage({ type: "REQUEST_DOM_SYNC_NOW" }, () => {
+    safeRuntimeSendMessage({ type: "REQUEST_DOM_SYNC_NOW" }, () => {
       window.setTimeout(() => {
-        chrome.runtime.sendMessage(
+        safeRuntimeSendMessage(
           { type: "OPEN_MEMORY_GRAPH", payload: { sessionId } },
           () => {
             setPanelOpen(false);
@@ -450,11 +456,7 @@ function FloatingMemoryPanelInner() {
           title={APP_DISPLAY_NAME}
         >
           <img
-            src={
-              typeof chrome !== "undefined" && chrome.runtime?.id
-                ? chrome.runtime.getURL("assets/icon.png")
-                : ""
-            }
+            src={safeRuntimeGetURL("assets/icon.png") ?? ""}
             alt={APP_DISPLAY_NAME}
             width={36}
             height={36}

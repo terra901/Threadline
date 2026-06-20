@@ -3,6 +3,7 @@ import {
   RECALL_INPUT_STYLE,
   RECALL_WRAPPER_STYLE,
 } from "../contents/recall-styles";
+import { safeStorageLocalGet, safeStorageLocalSet } from "./extension-context";
 
 const STORAGE_KEY = "recallTopK";
 
@@ -44,7 +45,7 @@ export function createRecallButton(opts: RecallButtonOptions): HTMLElement {
     document.head.appendChild(style);
   }
 
-  chrome.storage.local.get([STORAGE_KEY], (res) => {
+  safeStorageLocalGet([STORAGE_KEY], (res) => {
     input.value = String(res[STORAGE_KEY] ?? defaultTopK);
   });
 
@@ -54,7 +55,7 @@ export function createRecallButton(opts: RecallButtonOptions): HTMLElement {
       Math.min(20, parseInt(input.value, 10) || defaultTopK),
     );
     input.value = String(v);
-    chrome.storage.local.set({ [STORAGE_KEY]: v });
+    safeStorageLocalSet({ [STORAGE_KEY]: v });
   });
 
   input.addEventListener("keydown", (e) => e.stopPropagation());

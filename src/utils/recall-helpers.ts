@@ -3,6 +3,7 @@ import { getRecallMessagesForContentScript } from "../i18n/recall-messages";
 import { stopOnboardingHighlight } from "./onboarding-highlight";
 import { formatRAGPrompt } from "./rag";
 import { showRecallResultsPanel } from "./recall-results-panel";
+import { safeRuntimeSendMessage } from "./extension-context";
 
 export function getTopK(inputId: string, defaultTopK = 3): number {
   const input = document.getElementById(inputId) as HTMLInputElement | null;
@@ -18,14 +19,14 @@ export function searchMemories(
   topK: number,
 ): Promise<SearchMemoriesResponse> {
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(
+    const sent = safeRuntimeSendMessage<SearchMemoriesResponse>(
       {
         type: "SEARCH_MEMORIES",
         payload: { query: query || "general context", topK },
       },
-      (resp: SearchMemoriesResponse | undefined) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+      (resp, error) => {
+        if (error) {
+          reject(new Error(error));
           return;
         }
         if (!resp) {
@@ -35,6 +36,7 @@ export function searchMemories(
         resolve(resp);
       },
     );
+    if (!sent) reject(new Error("Extension context is unavailable"));
   });
 }
 
@@ -81,18 +83,14 @@ export async function handleRecallClick(
       anchor: opts.getPanelAnchor?.() ?? document.getElementById(opts.buttonId),
       onConfirm: (selectedResults) => {
         opts.injectText(formatRAGPrompt(query, selectedResults));
-        chrome.runtime
-          .sendMessage({ type: "FIRST_RECALL_USED" })
-          .catch(() => void 0);
+        safeRuntimeSendMessage({ type: "FIRST_RECALL_USED" });
         stopOnboardingHighlight(opts.buttonId);
       },
       onOpenOriginal: (result) => {
-        chrome.runtime
-          .sendMessage({
-            type: "OPEN_MEMORY_GRAPH",
-            payload: { sessionId: result.sessionId, recordId: result.id },
-          })
-          .catch(() => void 0);
+        safeRuntimeSendMessage({
+          type: "OPEN_MEMORY_GRAPH",
+          payload: { sessionId: result.sessionId, recordId: result.id },
+        });
       },
     });
   } catch (err) {

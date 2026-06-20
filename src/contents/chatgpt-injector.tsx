@@ -18,6 +18,10 @@ import type {
 import { watchOnboardingStep3 } from "../utils/onboarding-highlight";
 import { handleRecallClick as sharedHandleRecallClick } from "../utils/recall-helpers";
 import { createRecallButton as sharedCreateRecallButton } from "../utils/recall-button";
+import {
+  safeRuntimeOnMessage,
+  safeRuntimeSendMessage,
+} from "../utils/extension-context";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://chatgpt.com/*"],
@@ -338,7 +342,7 @@ function scanDomMessages(sessionId: string): DomMessage[] {
 function sendDomSync(messages: DomMessage[]): void {
   if (!messages.length) return;
 
-  chrome.runtime.sendMessage(
+  safeRuntimeSendMessage<DomSyncResponse>(
     {
       type: "DOM_SYNC",
       payload: {
@@ -348,12 +352,9 @@ function sendDomSync(messages: DomMessage[]): void {
         manual: true,
       },
     },
-    (resp: DomSyncResponse | undefined) => {
-      if (chrome.runtime.lastError) {
-        console.warn(
-          "[Threadline] DOM_SYNC error:",
-          chrome.runtime.lastError.message,
-        );
+    (resp, error) => {
+      if (error) {
+        console.warn("[Threadline] DOM_SYNC error:", error);
         return;
       }
       const { queued = 0, skipped = 0 } = resp?.payload ?? {};
@@ -443,7 +444,7 @@ function maybeScanCurrentConversation(): void {
   waitForMessageNodesAndScan(sessionId);
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+safeRuntimeOnMessage((message, _sender, sendResponse) => {
   if (message?.type !== "REQUEST_DOM_SYNC_NOW") return false;
   const sessionId = extractSessionId();
   if (sessionId) {
