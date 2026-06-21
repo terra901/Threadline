@@ -16,6 +16,24 @@ Threadline は対応 AI サイトの会話を取得し、ブラウザ内の Inde
 
 このプロジェクトは [marswangyang/personal-ai-memory](https://github.com/marswangyang/personal-ai-memory) をベースにしており、会話をグラフとして扱う方向性は [Vector-Mesh/VectorMesh](https://github.com/Vector-Mesh/VectorMesh) から着想を得ています。
 
+## Product Preview
+
+### Recall Result Panel
+
+<p align="center">
+  <img src="../assets/threadline-recall-panel.png" alt="Threadline Recall Result panel and floating panel" width="920">
+</p>
+
+Recall の結果は AI 入力欄の上に表示され、選択した原文だけを composer に注入したり、Memory Graph で元メッセージを開いたりできます。
+
+### Branch-Aware Memory Graph
+
+<p align="center">
+  <img src="../assets/threadline-memory-graph.png" alt="Threadline Memory Graph with branched conversation paths" width="920">
+</p>
+
+Memory Graph では保存済み・pending の session、provider filter、session actions、message count、vector 状態、zoom control、分岐 path を確認できます。
+
 ## Highlights
 
 | Feature | Description |

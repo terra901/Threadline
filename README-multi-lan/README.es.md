@@ -16,6 +16,24 @@ Threadline captura conversaciones de sitios de IA compatibles, las guarda en Ind
 
 Este proyecto está basado en [marswangyang/personal-ai-memory](https://github.com/marswangyang/personal-ai-memory) e inspirado por [Vector-Mesh/VectorMesh](https://github.com/Vector-Mesh/VectorMesh).
 
+## Vista Previa
+
+### Panel Recall Result
+
+<p align="center">
+  <img src="../assets/threadline-recall-panel.png" alt="Panel Recall Result y panel flotante de Threadline" width="920">
+</p>
+
+Los resultados de Recall aparecen sobre la entrada de IA. Puedes revisar el texto fuente, seleccionar memorias, abrir el mensaje original en Memory Graph e inyectar el contexto elegido.
+
+### Memory Graph con ramas
+
+<p align="center">
+  <img src="../assets/threadline-memory-graph.png" alt="Memory Graph de Threadline con rutas ramificadas" width="920">
+</p>
+
+Memory Graph muestra sesiones guardadas y pendientes, filtros por proveedor, acciones de sesión, conteos, vectores, controles de zoom y rutas ramificadas.
+
 ## Funciones
 
 | Función | Descripción |

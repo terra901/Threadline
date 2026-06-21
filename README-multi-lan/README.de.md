@@ -16,6 +16,24 @@ Threadline erfasst Gespräche von unterstützten KI-Websites, speichert sie in d
 
 Dieses Projekt basiert auf [marswangyang/personal-ai-memory](https://github.com/marswangyang/personal-ai-memory) und ist von [Vector-Mesh/VectorMesh](https://github.com/Vector-Mesh/VectorMesh) inspiriert.
 
+## Vorschau
+
+### Recall Result Panel
+
+<p align="center">
+  <img src="../assets/threadline-recall-panel.png" alt="Threadline Recall Result Panel und schwebendes Panel" width="920">
+</p>
+
+Recall-Ergebnisse erscheinen direkt über dem KI-Eingabefeld. Du kannst Quelltext prüfen, Memories auswählen, die Originalnachricht im Memory Graph öffnen und den gewählten Kontext einfügen.
+
+### Memory Graph mit Branches
+
+<p align="center">
+  <img src="../assets/threadline-memory-graph.png" alt="Threadline Memory Graph mit verzweigten Gesprächspfaden" width="920">
+</p>
+
+Memory Graph zeigt gespeicherte und ausstehende Sessions, Provider-Filter, Session-Aktionen, Zähler, Vektoren, Zoom-Steuerung und verzweigte Pfade.
+
 ## Funktionen
 
 | Funktion | Beschreibung |

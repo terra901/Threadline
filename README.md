@@ -21,6 +21,24 @@ Threadline captures conversations from supported AI websites, stores them in you
 
 This project is based on [marswangyang/personal-ai-memory](https://github.com/marswangyang/personal-ai-memory). The Memory Graph direction and branch-style visualization are inspired by [Vector-Mesh/VectorMesh](https://github.com/Vector-Mesh/VectorMesh).
 
+## Product Preview
+
+### Recall Result Panel
+
+<p align="center">
+  <img src="assets/threadline-recall-panel.png" alt="Threadline Recall Result panel and floating panel" width="920">
+</p>
+
+Recall results appear directly above the AI input. You can review matched source text, select only the memories you want, open the original message in Memory Graph, and confirm to inject selected context into the composer. The floating panel keeps prompts, Memory Graph, import/export, language, theme, and Auto / Manual mode close at hand.
+
+### Branch-Aware Memory Graph
+
+<p align="center">
+  <img src="assets/threadline-memory-graph.png" alt="Threadline Memory Graph with branched conversation paths" width="920">
+</p>
+
+Memory Graph opens as a full tab for browsing saved and pending sessions. It shows provider filters, session actions, message counts, vectors, zoom controls, and branch paths so edited prompts and alternate answers can be inspected as connected conversation routes.
+
 ## Status
 
 Threadline is an unpacked Chrome/Chromium extension for local use and active development. It is distributed from this repository for now.

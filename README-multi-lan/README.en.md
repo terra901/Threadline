@@ -16,6 +16,24 @@ Threadline captures conversations from supported AI websites, stores them in you
 
 This project is based on [marswangyang/personal-ai-memory](https://github.com/marswangyang/personal-ai-memory) and inspired by [Vector-Mesh/VectorMesh](https://github.com/Vector-Mesh/VectorMesh).
 
+## Product Preview
+
+### Recall Result Panel
+
+<p align="center">
+  <img src="../assets/threadline-recall-panel.png" alt="Threadline Recall Result panel and floating panel" width="920">
+</p>
+
+Recall results appear above the AI input, where selected source text can be injected into the composer or opened in Memory Graph.
+
+### Branch-Aware Memory Graph
+
+<p align="center">
+  <img src="../assets/threadline-memory-graph.png" alt="Threadline Memory Graph with branched conversation paths" width="920">
+</p>
+
+Memory Graph shows saved and pending sessions, filters, session actions, zoom controls, vectors, and branch paths for edited prompts and alternate answers.
+
 ## Highlights
 
 | Feature | Description |
