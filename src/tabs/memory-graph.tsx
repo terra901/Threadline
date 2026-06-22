@@ -17,6 +17,9 @@ type GraphSessionSummary = MemorySessionSummary & { persisted?: boolean }
 const MIN_SCALE = 0.45
 const MAX_SCALE = 1.8
 const DEFAULT_VIEWPORT: CanvasViewport = { x: 56, y: 36, scale: 1 }
+const GRAPH_DRAG_SELECT_CLASS = 'threadlineGraphPanning'
+const CANVAS_DRAG_IGNORE_SELECTOR =
+  'button, a, input, textarea, select, option, [contenteditable="true"], .messagePanel, .canvasControls'
 
 interface GraphRound {
   id: string
@@ -284,6 +287,11 @@ function sanitizeFilename(value: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function setGraphDragSelectionDisabled(active: boolean): void {
+  document.documentElement.classList.toggle(GRAPH_DRAG_SELECT_CLASS, active)
+  if (active) window.getSelection()?.removeAllRanges()
 }
 
 async function sendMessage<T>(message: unknown): Promise<T> {
@@ -960,9 +968,10 @@ function MemoryGraphApp() {
     if (event.button !== 0) return
     setActiveMenuSessionId('')
     setActiveMenuPosition(undefined)
-    const target = event.target as HTMLElement
-    if (target.closest('button, input, .messagePanel, .canvasControls')) return
+    const target = event.target
+    if (target instanceof Element && target.closest(CANVAS_DRAG_IGNORE_SELECTOR)) return
 
+    event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     dragRef.current = {
       pointerId: event.pointerId,
@@ -977,9 +986,13 @@ function MemoryGraphApp() {
   const handleCanvasPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
+    event.preventDefault()
     const dx = event.clientX - drag.startX
     const dy = event.clientY - drag.startY
-    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 3) {
+      drag.moved = true
+      setGraphDragSelectionDisabled(true)
+    }
     setViewport((current) => ({
       ...current,
       x: drag.originX + dx,
@@ -991,12 +1004,24 @@ function MemoryGraphApp() {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
     dragRef.current = null
+    setGraphDragSelectionDisabled(false)
     try {
       event.currentTarget.releasePointerCapture(event.pointerId)
     } catch {
       /* pointer capture may already be released */
     }
     if (!drag.moved) setSelectedRecordId('')
+  }, [])
+
+  const handleCanvasPointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    setGraphDragSelectionDisabled(false)
+  }, [])
+
+  useEffect(() => {
+    return () => setGraphDragSelectionDisabled(false)
   }, [])
 
   const handleNativeCanvasWheel = useCallback((event: WheelEvent) => {
@@ -1290,6 +1315,8 @@ function MemoryGraphApp() {
             onPointerDown={handleCanvasPointerDown}
             onPointerMove={handleCanvasPointerMove}
             onPointerUp={handleCanvasPointerUp}
+            onPointerCancel={handleCanvasPointerCancel}
+            onLostPointerCapture={handleCanvasPointerCancel}
           >
             <CanvasViewportControls
               onReset={handleResetViewport}
@@ -1794,6 +1821,16 @@ h1 {
   background-position: -1px -1px;
 }
 .graphCanvas:active {
+  cursor: grabbing;
+}
+html.threadlineGraphPanning,
+html.threadlineGraphPanning body,
+html.threadlineGraphPanning .graphCanvas,
+html.threadlineGraphPanning .graphCanvas * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+html.threadlineGraphPanning .graphCanvas {
   cursor: grabbing;
 }
 .graphViewport {

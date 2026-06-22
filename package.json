@@ -1,7 +1,7 @@
 {
   "name": "threadline",
   "displayName": "Threadline",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "Save, search, recall, and map AI conversations locally in your browser.",
   "author": "terra901",
   "repository": {
@@ -54,6 +54,7 @@
     ]
   },
   "manifest": {
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvjoEmRlExiNa4mkJXB6AN3aCll3itpWvJqhqyvtpU1o/QaO2T8b8bYvJgUQykjNukDOWJ50p6TBHdScJcKLjFWaP3WlJwQJX9P/6M4Uh2kJ+WLnxAO7+H6DcgWdjc1jy/p2Uf3nKE2/qWF7kJC0sp03hnG5gf9jV3lREWnjN4AQszrB/gIikJoPuFEFcYDmosejeLbGNGfZlS7Yx5IsuhKX3vKwkodhn0p1hJLMWJH22smSiSat/5su0nAVgjvWlK3LzMgXlRNzzDeyk5nl8/32+GyrpLriZCLUNsqhNLLdZGEQg0VCToOUbP4PdOYTQslLqS3PVJysorqRVbhTaZwIDAQAB",
     "host_permissions": [
       "https://chat.openai.com/*",
       "https://chatgpt.com/*",

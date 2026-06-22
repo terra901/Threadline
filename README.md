@@ -101,6 +101,8 @@ build/chrome-mv3-prod
 
 After any code change, run `pnpm build`, click **Reload** on the Threadline extension card, and refresh open AI tabs.
 
+For release ZIP updates, keep using the same loaded Threadline extension card when possible. Threadline includes a fixed extension key so newer unpacked release builds keep the same extension ID even if the unzipped folder path changes. If you are upgrading from a pre-`v0.0.11` build, export a Threadline backup first because older unpacked builds may have used a path-derived extension ID; browser IndexedDB is isolated by extension ID and cannot be read by a different extension ID.
+
 ### Development Mode
 
 ```bash
