@@ -5,6 +5,7 @@ import { queueEmbedding } from "./offscreen";
 import { safeAddRecord, isCaptureEnabled, db } from "./db";
 import { miniSearch } from "./search";
 import { normalizeContent } from "./adapters/base";
+import { isTransientAssistantMessage } from "../utils/transient-assistant";
 
 // ─── DOM Sync Handler ─────────────────────────────────────────────────────────
 // Processes historical messages discovered by the DOM scanner in chatgpt-injector.
@@ -307,17 +308,27 @@ async function resolveDomGraphMessages(
         resolvedForSession.push(assignMessage(msg, branchIndex));
       }
 
+      const unusedUserBranches = new Set(userBranches.values());
+
       assistants.forEach((msg, index) => {
         const explicit = toFiniteIndex(msg.branchIndex);
         const knownBranch = known.get(msg.messageId)?.branchIndex;
         let branchIndex = explicit ?? knownBranch;
 
         if (branchIndex === undefined) {
-          const pairedUser = users[index] ?? (users.length === 1 ? users[0] : undefined);
+          const pairedUser =
+            users[index] ??
+            (users.length === 1
+              ? users[0]
+              : users.find((candidate) => {
+                const candidateBranch = userBranches.get(candidate.messageId);
+                return candidateBranch !== undefined && unusedUserBranches.has(candidateBranch);
+              }));
           const pairedUserBranch = pairedUser ? userBranches.get(pairedUser.messageId) : undefined;
           if (
             pairedUserBranch !== undefined &&
-            !hasBranch(used, roundIndex, "assistant", pairedUserBranch)
+            (!hasBranch(used, roundIndex, "assistant", pairedUserBranch) ||
+              unusedUserBranches.has(pairedUserBranch))
           ) {
             branchIndex = pairedUserBranch;
             reserveBranch(used, roundIndex, "assistant", branchIndex);
@@ -328,6 +339,7 @@ async function resolveDomGraphMessages(
           reserveBranch(used, roundIndex, "assistant", branchIndex);
         }
 
+        unusedUserBranches.delete(branchIndex);
         resolvedForSession.push(assignMessage(msg, branchIndex));
       });
     }
@@ -374,6 +386,9 @@ export async function handleDomSync(
   },
 ): Promise<DomSyncResponse> {
   const { messages: rawMessages, url, provider } = message.payload;
+  const captureMessages = rawMessages.filter(
+    (msg) => !isTransientAssistantMessage(msg.role, msg.content),
+  );
 
   if (!isCaptureEnabled()) {
     return {
@@ -386,7 +401,11 @@ export async function handleDomSync(
     return { type: "DOM_SYNC_RESPONSE", payload: { queued: 0, skipped: 0 } };
   }
 
-  const messages = await resolveDomGraphMessages(rawMessages, provider);
+  if (!captureMessages.length) {
+    return { type: "DOM_SYNC_RESPONSE", payload: { queued: 0, skipped: rawMessages.length } };
+  }
+
+  const messages = await resolveDomGraphMessages(captureMessages, provider);
 
   // Bulk deduplication — one DB round-trip for all message IDs
   const allIds = messages.map((m) => m.messageId);
@@ -423,7 +442,7 @@ export async function handleDomSync(
       filteredMessages = newMessages.filter((m) => !existingContent.has(normalizeContent(m.content)));
     }
   }
-  const skipped = messages.length - filteredMessages.length;
+  const skipped = rawMessages.length - filteredMessages.length;
 
   const now = Date.now();
   const recordsToSave: MemoryRecord[] = [];

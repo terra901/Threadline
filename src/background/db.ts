@@ -7,6 +7,7 @@ import type {
   MemorySessionSummary,
 } from "../types/memory";
 import { normalizeContent } from "./adapters/base";
+import { isTransientAssistantMessage } from "../utils/transient-assistant";
 
 export class MemoryDatabase extends Dexie {
   memories!: Table<MemoryRecord, string>;
@@ -233,9 +234,12 @@ export class MemoryDatabase extends Dexie {
       .equals(sessionId)
       .filter((r) => !r.isDeleted)
       .toArray();
-    const records = this.mergeGraphChunks(raw).sort(sortMemoryRecords);
+    const visibleRaw = raw.filter((record) => !isTransientAssistantMessage(record.role, record.content));
+    const records = this.mergeGraphChunks(visibleRaw)
+      .filter((record) => !isTransientAssistantMessage(record.role, record.content))
+      .sort(sortMemoryRecords);
     const titles = await this.getConversationTitles([sessionId]);
-    const session = this.buildSessionSummaries(raw)[0];
+    const session = this.buildSessionSummaries(visibleRaw)[0];
     if (session) session.title = titles.get(session.sessionId) ?? session.title;
     return { session, records };
   }
@@ -438,7 +442,9 @@ export class MemoryDatabase extends Dexie {
     const collection = provider
       ? this.memories.where("provider").equals(provider)
       : this.memories.toCollection();
-    return collection.filter((r) => !r.isDeleted).toArray();
+    return collection
+      .filter((r) => !r.isDeleted && !isTransientAssistantMessage(r.role, r.content))
+      .toArray();
   }
 
   buildSessionSummaries(records: MemoryRecord[]): MemorySessionSummary[] {

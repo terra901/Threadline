@@ -22,6 +22,7 @@ import {
   safeRuntimeOnMessage,
   safeRuntimeSendMessage,
 } from "../utils/extension-context";
+import { isTransientAssistantMessage } from "../utils/transient-assistant";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://chatgpt.com/*"],
@@ -321,6 +322,8 @@ function scanDomMessages(sessionId: string): DomMessage[] {
         roleAttr === "user" || roleAttr === "assistant"
           ? roleAttr
           : roleFromTurn;
+
+      if (isTransientAssistantMessage(role, content)) continue;
 
       results.push({
         messageId,

@@ -15,6 +15,7 @@ import { db, safeAddRecord } from "./db";
 import { expandToChunks } from "./chunking";
 import { miniSearch } from "./search";
 import { queueEmbedding } from "./offscreen";
+import { isTransientAssistantMessage } from "../utils/transient-assistant";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -87,15 +88,34 @@ function normalizePendingSession(session: MemorySessionSummary): MemorySessionSu
   };
 }
 
+function isVisibleRecord(record: MemoryRecord | GraphMemoryRecord): boolean {
+  return !isTransientAssistantMessage(record.role, record.content);
+}
+
+function normalizePendingItem(item: PendingMemorySession): PendingMemorySession {
+  const records = item.records.filter(isVisibleRecord).map(markPendingRecord);
+  const session = normalizePendingSession(
+    db.buildSessionSummaries(records.map(toMemoryRecord))[0] ?? item.session,
+  );
+  return {
+    ...item,
+    session,
+    records,
+  };
+}
+
 export async function getCaptureMode(): Promise<CaptureMode> {
   const stored = await chrome.storage.local.get([CAPTURE_MODE_STORAGE_KEY]);
   return stored[CAPTURE_MODE_STORAGE_KEY] === "manual" ? "manual" : DEFAULT_CAPTURE_MODE;
 }
 
 export async function cachePendingRecords(records: MemoryRecord[]): Promise<void> {
-  if (records.length === 0) return;
-  const graphRecords = db.mergeGraphChunks(records).map(markPendingRecord);
-  const summaries = db.buildSessionSummaries(records);
+  const captureRecords = records.filter(
+    (record) => !isTransientAssistantMessage(record.role, record.content),
+  );
+  if (captureRecords.length === 0) return;
+  const graphRecords = db.mergeGraphChunks(captureRecords).map(markPendingRecord);
+  const summaries = db.buildSessionSummaries(captureRecords);
   if (summaries.length === 0) return;
 
   const pending = await readPendingMap();
@@ -133,7 +153,7 @@ export async function listPendingSessions(filters?: {
   const pending = await readPendingMap();
   const q = filters?.query?.trim().toLowerCase();
   return Object.values(pending)
-    .map((item) => item.session)
+    .map((item) => normalizePendingItem(item).session)
     .filter((session) => {
       if (filters?.provider && session.provider !== filters.provider) return false;
       if (!q) return true;
@@ -154,9 +174,10 @@ export async function getPendingSessionGraph(
   const pending = await readPendingMap();
   const item = pending[sessionId];
   if (!item) return { records: [] };
+  const normalized = normalizePendingItem(item);
   return {
-    session: item.session,
-    records: item.records.map(markPendingRecord),
+    session: normalized.session,
+    records: normalized.records,
   };
 }
 
@@ -166,7 +187,7 @@ export async function persistPendingSession(
   const pending = await readPendingMap();
   const item = pending[sessionId];
   if (!item) return { count: 0, skipped: 0 };
-  const records = item.records.map(toMemoryRecord);
+  const records = item.records.filter(isVisibleRecord).map(toMemoryRecord);
   const ids = records.map((record) => record.id);
   const newIds = new Set(await db.filterNewChatMessageUuids(ids));
   let count = 0;

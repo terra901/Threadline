@@ -207,22 +207,46 @@ function pairRoundRecords(round: GraphRound): BranchPath[] {
     grouped.set(branchIndex, list)
   }
 
-  return [...grouped.entries()]
+  const branchGroups = [...grouped.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([branchIndex, branchRecords]) => {
-      const records = sortGraphRecordsForTimeline(branchRecords)
-    const firstTimestamp = records.length > 0
-      ? Math.min(...records.map((record) => toTimelineMillis(record.timestamp)))
-      : round.firstTimestamp
-    return {
-      id: `${round.id}-branch-${branchIndex}`,
+    .map(([branchIndex, branchRecords]) => ({
       branchIndex,
-      records,
-      firstTimestamp,
-      isMain: branchIndex === 0,
+      records: sortGraphRecordsForTimeline(branchRecords),
+    }))
+
+  const mainGroup = branchGroups.find((group) => group.branchIndex === 0)
+  const mainHasUser = mainGroup?.records.some((record) => record.role === 'user') ?? false
+  const mainHasAssistant = mainGroup?.records.some((record) => record.role === 'assistant') ?? false
+  if (mainGroup && mainHasUser && !mainHasAssistant) {
+    const orphanAssistantGroup = branchGroups.find(
+      (group) =>
+        group.branchIndex > 0 &&
+        group.records.some((record) => record.role === 'assistant') &&
+        !group.records.some((record) => record.role === 'user'),
+    )
+    if (orphanAssistantGroup) {
+      mainGroup.records = sortGraphRecordsForTimeline([
+        ...mainGroup.records,
+        ...orphanAssistantGroup.records,
+      ])
+      orphanAssistantGroup.records = []
     }
+  }
+
+  return branchGroups
+    .filter((group) => group.records.length > 0)
+    .map(({ branchIndex: rawBranchIndex, records }, displayIndex) => {
+      const firstTimestamp = records.length > 0
+        ? Math.min(...records.map((record) => toTimelineMillis(record.timestamp)))
+        : round.firstTimestamp
+      return {
+        id: `${round.id}-branch-${rawBranchIndex}`,
+        branchIndex: displayIndex,
+        records,
+        firstTimestamp,
+        isMain: displayIndex === 0,
+      }
     })
-    .filter((branch) => branch.records.length > 0)
 }
 
 function truncate(text: string, max = 180): string {
@@ -425,7 +449,7 @@ function SessionList({
   onExportSession: (session: GraphSessionSummary) => void
   onPersistSession: (session: GraphSessionSummary) => void
   onSelect: (sessionId: string) => void
-  onToggleMenu: (sessionId: string, event: React.MouseEvent<HTMLButtonElement>) => void
+  onToggleMenu: (sessionId: string, position?: { top: number; right: number }) => void
   persistingSessionId: string
   sessions: GraphSessionSummary[]
 }) {
@@ -469,7 +493,17 @@ function SessionList({
                 title="Session actions"
                 onClick={(event) => {
                   event.stopPropagation()
-                  onToggleMenu(session.sessionId, event)
+                  const button = event.currentTarget
+                  const area = button.closest('.sessionArea')
+                  const areaRect = area?.getBoundingClientRect()
+                  const buttonRect = button.getBoundingClientRect()
+                  const position = areaRect
+                    ? {
+                      top: Math.max(8, Math.min(buttonRect.bottom - areaRect.top + 6, areaRect.height - 124)),
+                      right: Math.max(8, areaRect.right - buttonRect.right),
+                    }
+                    : undefined
+                  onToggleMenu(session.sessionId, position)
                 }}
               >
                 <MoreHorizontalIcon size={15} />
@@ -1216,21 +1250,13 @@ function MemoryGraphApp() {
               onExportSession={handleExportListedSession}
               onPersistSession={handlePersistSession}
               onSelect={setActiveSessionId}
-              onToggleMenu={(sessionId, event) => {
+              onToggleMenu={(sessionId, position) => {
                 setActiveMenuSessionId((current) => {
                   if (current === sessionId) {
                     setActiveMenuPosition(undefined)
                     return ''
                   }
-                  const area = event.currentTarget.closest('.sessionArea')
-                  const areaRect = area?.getBoundingClientRect()
-                  const buttonRect = event.currentTarget.getBoundingClientRect()
-                  if (areaRect) {
-                    setActiveMenuPosition({
-                      top: Math.max(8, Math.min(buttonRect.bottom - areaRect.top + 6, areaRect.height - 124)),
-                      right: Math.max(8, areaRect.right - buttonRect.right),
-                    })
-                  }
+                  setActiveMenuPosition(position)
                   return sessionId
                 })
               }}

@@ -246,6 +246,14 @@ interface GeminiMessage {
   containerId: string;
 }
 
+function stableMessageHash(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (((hash << 5) + hash) ^ value.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
 /**
  * Extract all messages from a single turn container div.
  * Returns [] if container is not yet fully rendered.
@@ -278,7 +286,7 @@ function extractContainerMessages(
       .join("\n");
     if (content) {
       messages.push({
-        messageId: `${containerId}-u`,
+        messageId: `${containerId}-u-${stableMessageHash(content)}`,
         role: "user",
         content,
         turnIndex: resolvedTurnIndex * 2,
@@ -356,7 +364,6 @@ function runDomSync(conversationId: string): void {
         content: msg.content,
         turnIndex: msg.turnIndex,
         roundIndex: Math.max(0, Math.floor(msg.turnIndex / 2)),
-        branchIndex: 0,
         sessionId,
         pageTitle,
         scannedAt,
@@ -469,7 +476,6 @@ function watchForNewContainers(conversationId: string): MutationObserver | null 
           content: m.content,
           turnIndex: m.turnIndex,
           roundIndex: Math.max(0, Math.floor(m.turnIndex / 2)),
-          branchIndex: 0,
           sessionId,
           pageTitle,
           scannedAt,
