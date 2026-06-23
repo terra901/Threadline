@@ -53,7 +53,13 @@ export async function handleRecallClick(
   btn: HTMLButtonElement,
   opts: RecallHandlerOptions,
 ): Promise<void> {
-  const { promptEmpty, alreadyRecalled } = getRecallMessagesForContentScript();
+  const {
+    promptEmpty,
+    alreadyRecalled,
+    noMemories,
+    noRelevantMemories,
+    searchFailed,
+  } = getRecallMessagesForContentScript();
   const query = opts.getInputText().trim();
   if (!query) {
     alert(promptEmpty);
@@ -70,10 +76,13 @@ export async function handleRecallClick(
   try {
     const topK = getTopK(opts.inputId, opts.defaultTopK ?? 3);
     const response = await searchMemories(query, topK);
+    if (response.payload.error) {
+      throw new Error(response.payload.error);
+    }
     const results = response.payload.results ?? [];
 
     if (results.length === 0) {
-      alert("[Threadline] No relevant memories found for your query.");
+      alert(response.payload.reason === "EMPTY_MEMORY_DB" ? noMemories : noRelevantMemories);
       return;
     }
 
@@ -95,7 +104,7 @@ export async function handleRecallClick(
     });
   } catch (err) {
     console.error("[Threadline] Recall failed:", err);
-    alert(`[Threadline] Search failed: ${String(err)}`);
+    alert(searchFailed(String(err)));
   } finally {
     btn.textContent = "Recall";
     btn.disabled = false;

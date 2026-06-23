@@ -231,7 +231,12 @@ export interface SearchResult {
 
 export interface SearchMemoriesResponse {
   type: 'SEARCH_MEMORIES_RESPONSE'
-  payload: { results: SearchResult[]; query: string; error?: string }
+  payload: {
+    results: SearchResult[]
+    query: string
+    error?: string
+    reason?: 'EMPTY_MEMORY_DB' | 'NO_MATCHES'
+  }
 }
 
 // ─── EXPORT_MEMORIES ─────────────────────────────────────────────────────────

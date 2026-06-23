@@ -117,7 +117,14 @@ export async function handleSearchMemories(
   const { query, topK = 5 } = message.payload
 
   // ── Load all candidate records once ────────────────────────────────────────
-  const all = await db.memories.filter((r) => !r.isDeleted && !!r.embedding).toArray()
+  const all = await db.memories.filter((r) => !r.isDeleted).toArray()
+
+  if (all.length === 0) {
+    return {
+      type: 'SEARCH_MEMORIES_RESPONSE',
+      payload: { results: [], query, reason: 'EMPTY_MEMORY_DB' },
+    }
+  }
 
   // Build lookup maps used by both routes and the merge step
   const groupRecords = new Map<string, MemoryRecord[]>()
@@ -130,17 +137,20 @@ export async function handleSearchMemories(
 
   // ── Route A: Vector + Time-Decay ───────────────────────────────────────────
   const vectorGroupScores = new Map<string, number>()
+  const vectorRecords = all.filter((r) => !!r.embedding)
 
   let queryEmbedding: Float32Array | null = null
-  try {
-    queryEmbedding = await embedViaOffscreen(query)
-  } catch (err) {
-    console.warn('[Threadline] Search: failed to embed query', err)
+  if (vectorRecords.length > 0) {
+    try {
+      queryEmbedding = await embedViaOffscreen(query)
+    } catch (err) {
+      console.warn('[Threadline] Search: failed to embed query', err)
+    }
   }
 
   if (queryEmbedding) {
     const now = Date.now()
-    for (const r of all) {
+    for (const r of vectorRecords) {
       const baseScore = dotProduct(queryEmbedding, r.embedding as Float32Array)
       
       // Reject low scores to prevent the negative score decay paradox
@@ -203,7 +213,10 @@ export async function handleSearchMemories(
 
   // If both routes failed (no embedding AND no keyword hits), fall back gracefully
   if (rrfScores.size === 0) {
-    return { type: 'SEARCH_MEMORIES_RESPONSE', payload: { results: [], query } }
+    return {
+      type: 'SEARCH_MEMORIES_RESPONSE',
+      payload: { results: [], query, reason: 'NO_MATCHES' },
+    }
   }
 
   // ── Final ranking ──────────────────────────────────────────────────────────
