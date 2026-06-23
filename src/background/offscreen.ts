@@ -1,4 +1,4 @@
-import { MODEL_NAME, EMBEDDING_VERSION } from "./embedding";
+import { MODEL_NAME, EMBEDDING_VERSION } from "../constants/embedding";
 import { db } from "./db";
 import type { MemoryRecord } from "../types/memory";
 

@@ -3,6 +3,8 @@ import type {
   ConversationTitle,
   ErrorLog,
   GraphMemoryRecord,
+  AttachmentBlobRecord,
+  AttachmentRecord,
   MemoryRecord,
   MemorySessionSummary,
 } from "../types/memory";
@@ -13,6 +15,8 @@ export class MemoryDatabase extends Dexie {
   memories!: Table<MemoryRecord, string>;
   errors!: Table<ErrorLog, number>;
   conversations!: Table<ConversationTitle, string>;
+  attachments!: Table<AttachmentRecord, string>;
+  attachmentBlobs!: Table<AttachmentBlobRecord, string>;
 
   constructor() {
     super("AIMemoryDB");
@@ -124,6 +128,16 @@ export class MemoryDatabase extends Dexie {
           }
         });
       });
+
+    this.version(4).stores({
+      memories:
+        "id, sessionId, provider, role, timestamp, createdAt, parentId, hasEmbedding, turnIndex, source, roundIndex, branchIndex, branchId, pathId, [provider+sessionId], [provider+timestamp], [sessionId+timestamp], [sessionId+roundIndex], [sessionId+branchId]",
+      errors: "++id, timestamp",
+      conversations: "sessionId, updatedAt",
+      attachments:
+        "id, messageId, sessionId, provider, kind, status, createdAt, updatedAt, [sessionId+messageId]",
+      attachmentBlobs: "id, attachmentId, createdAt",
+    });
   }
 
   // ─── Memory Record DAO ──────────────────────────────────────────────────────
@@ -163,6 +177,8 @@ export class MemoryDatabase extends Dexie {
   async clearAllMemories(): Promise<void> {
     await this.memories.clear();
     await this.conversations.clear();
+    await this.attachments.clear();
+    await this.attachmentBlobs.clear();
   }
 
   /** Soft-delete all records for a single session and remove its title. */
@@ -171,6 +187,18 @@ export class MemoryDatabase extends Dexie {
     const ids = records.map((record) => record.id);
     if (ids.length > 0) {
       await Promise.all(ids.map((id) => this.memories.update(id, { isDeleted: true })));
+    }
+    const attachments = await this.attachments.where("sessionId").equals(sessionId).toArray();
+    if (attachments.length > 0) {
+      const attachmentIds = attachments.map((attachment) => attachment.id);
+      await this.transaction("rw", this.attachments, this.attachmentBlobs, async () => {
+        await this.attachments.bulkDelete(attachmentIds);
+        await Promise.all(
+          attachmentIds.map((attachmentId) =>
+            this.attachmentBlobs.where("attachmentId").equals(attachmentId).delete(),
+          ),
+        );
+      });
     }
     await this.conversations.delete(sessionId);
     return ids.length;
@@ -235,13 +263,51 @@ export class MemoryDatabase extends Dexie {
       .filter((r) => !r.isDeleted)
       .toArray();
     const visibleRaw = raw.filter((record) => !isTransientAssistantMessage(record.role, record.content));
-    const records = this.mergeGraphChunks(visibleRaw)
+    const mergedRecords = this.mergeGraphChunks(visibleRaw)
       .filter((record) => !isTransientAssistantMessage(record.role, record.content))
       .sort(sortMemoryRecords);
+    const records = this.attachGraphAttachments(
+      mergedRecords,
+      await this.getSavedSessionAttachments(sessionId),
+    );
     const titles = await this.getConversationTitles([sessionId]);
     const session = this.buildSessionSummaries(visibleRaw)[0];
     if (session) session.title = titles.get(session.sessionId) ?? session.title;
     return { session, records };
+  }
+
+  private async getSavedSessionAttachments(sessionId: string): Promise<AttachmentRecord[]> {
+    return this.attachments
+      .where("sessionId")
+      .equals(sessionId)
+      .filter((attachment) => attachment.status === "saved")
+      .toArray();
+  }
+
+  private attachGraphAttachments(
+    records: GraphMemoryRecord[],
+    attachments: AttachmentRecord[],
+  ): GraphMemoryRecord[] {
+    if (attachments.length === 0) return records;
+
+    const byMessageId = new Map<string, AttachmentRecord[]>();
+    for (const attachment of attachments) {
+      const list = byMessageId.get(attachment.messageId) ?? [];
+      list.push(attachment);
+      byMessageId.set(attachment.messageId, list);
+    }
+
+    return records.map((record) => {
+      const keys = getGraphRecordMessageKeys(record);
+      const matched = new Map<string, AttachmentRecord>();
+      for (const key of keys) {
+        const list = byMessageId.get(key);
+        if (!list) continue;
+        for (const attachment of list) matched.set(attachment.id, attachment);
+      }
+      if (matched.size === 0) return record;
+      return { ...record, attachments: Array.from(matched.values()) };
+    });
   }
 
   // ─── Error Log DAO ──────────────────────────────────────────────────────────
@@ -595,6 +661,28 @@ function toTimelineMillis(value: unknown): number {
     if (Number.isFinite(time)) return time;
   }
   return Number.POSITIVE_INFINITY;
+}
+
+function addMessageKey(keys: Set<string>, value?: string): void {
+  if (!value) return;
+  keys.add(value);
+  if (value.startsWith("dom:")) {
+    keys.add(value.slice(4));
+  } else {
+    keys.add(`dom:${value}`);
+  }
+}
+
+function getGraphRecordMessageKeys(record: GraphMemoryRecord): Set<string> {
+  const keys = new Set<string>();
+  addMessageKey(keys, record.id);
+  addMessageKey(keys, record.originalMessageId);
+  addMessageKey(keys, record.parentMessageId);
+  addMessageKey(keys, record.parentId);
+  for (const chunkId of record.chunkIds) {
+    addMessageKey(keys, chunkId);
+  }
+  return keys;
 }
 
 function minTimelineValue(values: unknown[]): number {

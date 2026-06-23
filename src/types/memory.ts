@@ -65,6 +65,61 @@ export interface MemoryRecord {
   metadata?: Record<string, unknown>
 }
 
+export type AttachmentKind = 'image' | 'file'
+
+export type AttachmentCaptureSource =
+  | 'dom_scan'
+  | 'upload'
+  | 'paste'
+  | 'drop'
+  | 'remote'
+
+export type AttachmentSaveStatus =
+  | 'saved'
+  | 'too_large'
+  | 'fetch_failed'
+  | 'unsupported'
+
+export interface AttachmentRecord {
+  id: string
+  messageId: string
+  sessionId: string
+  provider: AIProvider
+  kind: AttachmentKind
+  source: AttachmentCaptureSource
+  url?: string
+  name?: string
+  mimeType?: string
+  size?: number
+  hash?: string
+  status: AttachmentSaveStatus
+  createdAt: number
+  updatedAt: number
+  error?: string
+}
+
+export interface AttachmentBlobRecord {
+  id: string
+  attachmentId: string
+  blob: Blob
+  size: number
+  mimeType?: string
+  createdAt: number
+}
+
+export interface DomAttachmentCandidate {
+  id: string
+  messageId: string
+  kind: AttachmentKind
+  source: AttachmentCaptureSource
+  url?: string
+  name?: string
+  mimeType?: string
+  size?: number
+  dataUrl?: string
+  error?: string
+}
+
 // ─── Memory Export Protocol v1.0 / v1.1 ───────────────────────────────────────
 
 /** Serialised record: embedding is number[] instead of Float32Array for JSON. */
@@ -141,6 +196,7 @@ export type GraphMemoryRecord = Omit<MemoryRecord, 'embedding'> & {
   chunkCount: number
   isChunked: boolean
   embeddingLength?: number
+  attachments?: AttachmentRecord[]
   /** false means shown from the manual-mode pending session cache */
   persisted?: boolean
 }

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LanguageProvider, useTranslation } from '../i18n/LanguageContext'
 import { ThemeProvider, useTheme } from '../i18n/ThemeContext'
-import type { AIProvider, GraphMemoryRecord, MemorySessionSummary } from '../types/memory'
-import type { DeleteMemorySessionResponse, PersistPendingSessionResponse, QueryMemorySessionsResponse, QuerySessionGraphResponse } from '../types/messages'
+import type { AIProvider, AttachmentRecord, GraphMemoryRecord, MemorySessionSummary } from '../types/memory'
+import type { DeleteMemorySessionResponse, DownloadAttachmentResponse, PersistPendingSessionResponse, QueryMemorySessionsResponse, QuerySessionGraphResponse } from '../types/messages'
 import { CopyIcon, DownloadIcon, ListIcon, MoreHorizontalIcon, NetworkIcon, RefreshIcon, TrashIcon, UploadIcon } from '../ui/icons'
 import * as S from '../ui/styles'
 import { getThemeTokens } from '../ui/theme'
@@ -13,13 +13,14 @@ type Notice = { type: 'success' | 'error'; message: string } | null
 type CssVars = React.CSSProperties & Record<`--${string}`, string>
 type CanvasViewport = { x: number; y: number; scale: number }
 type GraphSessionSummary = MemorySessionSummary & { persisted?: boolean }
+type ImagePreview = { filename: string; dataUrl: string } | null
 
 const MIN_SCALE = 0.45
 const MAX_SCALE = 1.8
 const DEFAULT_VIEWPORT: CanvasViewport = { x: 56, y: 36, scale: 1 }
 const GRAPH_DRAG_SELECT_CLASS = 'threadlineGraphPanning'
 const CANVAS_DRAG_IGNORE_SELECTOR =
-  'button, a, input, textarea, select, option, [contenteditable="true"], .messagePanel, .canvasControls'
+  'button, a, input, textarea, select, option, [contenteditable="true"], .messagePanel, .canvasControls, .graphNode'
 
 interface GraphRound {
   id: string
@@ -285,6 +286,16 @@ function sanitizeFilename(value: string): string {
     .slice(0, 80) || 'conversation'
 }
 
+function getDownloadableAttachments(record: GraphMemoryRecord): AttachmentRecord[] {
+  return (record.attachments ?? []).filter((attachment) => attachment.status === 'saved')
+}
+
+function getPreviewableImageAttachment(record: GraphMemoryRecord): AttachmentRecord | undefined {
+  return getDownloadableAttachments(record).find((attachment) =>
+    attachment.kind === 'image' || attachment.mimeType?.startsWith('image/'),
+  )
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -357,6 +368,15 @@ async function saveFile(filename: string, content: string, type: string): Promis
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
   return true
+}
+
+function downloadDataUrl(filename: string, dataUrl: string): void {
+  const link = document.createElement('a')
+  link.href = dataUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 
 function buildMessageText(record: GraphMemoryRecord): string {
@@ -559,53 +579,103 @@ function SessionList({
 
 function GraphNode({
   active,
+  attachmentMenuOpen,
   branchIndex,
   index,
+  onDownloadAttachments,
+  onPreviewAttachments,
   onSelect,
+  onToggleAttachmentMenu,
   record,
 }: {
   active: boolean
+  attachmentMenuOpen: boolean
   branchIndex: number
   index: number
+  onDownloadAttachments: (record: GraphMemoryRecord) => void
+  onPreviewAttachments: (record: GraphMemoryRecord) => void
   onSelect: (record: GraphMemoryRecord) => void
+  onToggleAttachmentMenu: (record: GraphMemoryRecord) => void
   record: GraphMemoryRecord
 }) {
   const isUser = record.role === 'user'
+  const attachments = getDownloadableAttachments(record)
+  const hasAttachments = attachments.length > 0
+
   return (
-    <button
-      type="button"
-      className={`graphNode ${isUser ? 'user' : 'assistant'}${active ? ' active' : ''}`}
+    <div
+      className={`graphNode ${isUser ? 'user' : 'assistant'}${active ? ' active' : ''}${hasAttachments ? ' hasAttachments' : ''}`}
       data-record-id={record.id}
-      onClick={() => onSelect(record)}
     >
-      <span className="nodeBody">
-        <span className="nodeTop">
-          <span className={`rolePill ${isUser ? 'user' : 'assistant'}`}>
-            {ROLE_LABEL[record.role] ?? record.role}
+      <button
+        type="button"
+        className="nodeSelectButton"
+        onClick={() => onSelect(record)}
+      >
+        <span className="nodeBody">
+          <span className="nodeTop">
+            <span className={`rolePill ${isUser ? 'user' : 'assistant'}`}>
+              {ROLE_LABEL[record.role] ?? record.role}
+            </span>
+            <span className="nodeIndex">#{String(index + 1).padStart(2, '0')}</span>
+            {branchIndex > 0 && <span className="branchPill">Branch {branchIndex + 1}</span>}
+            <span className="nodeTime">{formatDate(record.timestamp)}</span>
           </span>
-          <span className="nodeIndex">#{String(index + 1).padStart(2, '0')}</span>
-          {branchIndex > 0 && <span className="branchPill">Branch {branchIndex + 1}</span>}
-          <span className="nodeTime">{formatDate(record.timestamp)}</span>
+          <span className="nodeContent">{truncate(record.content)}</span>
+          <span className="nodeFooter">
+            {record.model && <span>{record.model}</span>}
+            {record.isChunked && <span>{record.chunkCount} chunks</span>}
+          </span>
         </span>
-        <span className="nodeContent">{truncate(record.content)}</span>
-        <span className="nodeFooter">
-          {record.model && <span>{record.model}</span>}
-          {record.isChunked && <span>{record.chunkCount} chunks</span>}
+      </button>
+      {hasAttachments && (
+        <span className="nodeAttachmentActions">
+          <button
+            type="button"
+            className="nodeAttachmentButton"
+            aria-expanded={attachmentMenuOpen}
+            aria-label={`Attachment actions for ${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
+            title="Attachment actions"
+            onClick={(event) => {
+              event.stopPropagation()
+              onToggleAttachmentMenu(record)
+            }}
+          >
+            <MoreHorizontalIcon size={14} />
+          </button>
+          {attachmentMenuOpen && (
+            <span className="nodeAttachmentMenu" onClick={(event) => event.stopPropagation()}>
+              <button type="button" onClick={() => onPreviewAttachments(record)}>
+                Preview
+              </button>
+              <button type="button" onClick={() => onDownloadAttachments(record)}>
+                Download
+              </button>
+            </span>
+          )}
         </span>
-      </span>
-    </button>
+      )}
+    </div>
   )
 }
 
 function BranchColumn({
+  activeAttachmentMenuRecordId,
   branch,
   globalIndexOffset,
+  onDownloadAttachments,
+  onPreviewAttachments,
   onSelect,
+  onToggleAttachmentMenu,
   selectedRecordId,
 }: {
+  activeAttachmentMenuRecordId: string
   branch: BranchPath
   globalIndexOffset: (record: GraphMemoryRecord) => number
+  onDownloadAttachments: (record: GraphMemoryRecord) => void
+  onPreviewAttachments: (record: GraphMemoryRecord) => void
   onSelect: (record: GraphMemoryRecord) => void
+  onToggleAttachmentMenu: (record: GraphMemoryRecord) => void
   selectedRecordId: string
 }) {
   return (
@@ -619,9 +689,13 @@ function BranchColumn({
         <GraphNode
           key={record.id}
           active={record.id === selectedRecordId}
+          attachmentMenuOpen={record.id === activeAttachmentMenuRecordId}
           branchIndex={branch.branchIndex}
           index={globalIndexOffset(record)}
+          onDownloadAttachments={onDownloadAttachments}
+          onPreviewAttachments={onPreviewAttachments}
           onSelect={onSelect}
+          onToggleAttachmentMenu={onToggleAttachmentMenu}
           record={record}
         />
       ))}
@@ -630,11 +704,19 @@ function BranchColumn({
 }
 
 function Timeline({
+  activeAttachmentMenuRecordId,
+  onDownloadAttachments,
+  onPreviewAttachments,
   onSelect,
+  onToggleAttachmentMenu,
   records,
   selectedRecordId,
 }: {
+  activeAttachmentMenuRecordId: string
+  onDownloadAttachments: (record: GraphMemoryRecord) => void
+  onPreviewAttachments: (record: GraphMemoryRecord) => void
   onSelect: (record: GraphMemoryRecord) => void
+  onToggleAttachmentMenu: (record: GraphMemoryRecord) => void
   records: GraphMemoryRecord[]
   selectedRecordId: string
 }) {
@@ -662,9 +744,13 @@ function Timeline({
             {pairRoundRecords(round).map((branch) => (
               <BranchColumn
                 key={branch.id}
+                activeAttachmentMenuRecordId={activeAttachmentMenuRecordId}
                 branch={branch}
                 globalIndexOffset={(record) => globalIndex.get(record.id) ?? 0}
+                onDownloadAttachments={onDownloadAttachments}
+                onPreviewAttachments={onPreviewAttachments}
                 onSelect={onSelect}
+                onToggleAttachmentMenu={onToggleAttachmentMenu}
                 selectedRecordId={selectedRecordId}
               />
             ))}
@@ -763,6 +849,30 @@ function MessageBoard({
   )
 }
 
+function ImagePreviewModal({
+  onClose,
+  preview,
+}: {
+  onClose: () => void
+  preview: ImagePreview
+}) {
+  if (!preview) return null
+
+  return (
+    <div className="previewOverlay" role="dialog" aria-modal="true" aria-label="Image preview" onClick={onClose}>
+      <div className="previewDialog" onClick={(event) => event.stopPropagation()}>
+        <div className="previewHeader">
+          <strong>{preview.filename}</strong>
+          <IconButton onClick={onClose} title="Close preview">x</IconButton>
+        </div>
+        <div className="previewImageFrame">
+          <img src={preview.dataUrl} alt={preview.filename} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function MemoryGraphApp() {
   const { t } = useTranslation()
   const { theme } = useTheme()
@@ -785,6 +895,8 @@ function MemoryGraphApp() {
   const [deletingSessionId, setDeletingSessionId] = useState('')
   const [activeMenuSessionId, setActiveMenuSessionId] = useState('')
   const [activeMenuPosition, setActiveMenuPosition] = useState<{ top: number; right: number } | undefined>()
+  const [activeAttachmentMenuRecordId, setActiveAttachmentMenuRecordId] = useState('')
+  const [imagePreview, setImagePreview] = useState<ImagePreview>(null)
   const [viewport, setViewport] = useState<CanvasViewport>(DEFAULT_VIEWPORT)
   const graphCanvasRef = useRef<HTMLDivElement | null>(null)
   const pendingFocusRecordIdRef = useRef(getInitialRecordId())
@@ -888,6 +1000,7 @@ function MemoryGraphApp() {
       setRecords(sortedRecords)
       setSelectedRecordId(focusRecordId)
       setFlashingRecordId(focusRecordId)
+      setActiveAttachmentMenuRecordId('')
       pendingFocusRecordIdRef.current = ''
       setViewport(DEFAULT_VIEWPORT)
     } catch (err) {
@@ -940,6 +1053,7 @@ function MemoryGraphApp() {
   const handleRefresh = useCallback(() => {
     setActiveMenuSessionId('')
     setActiveMenuPosition(undefined)
+    setActiveAttachmentMenuRecordId('')
     void loadSessions()
     if (activeSessionId) void loadGraph(activeSessionId)
   }, [activeSessionId, loadGraph, loadSessions])
@@ -1011,6 +1125,7 @@ function MemoryGraphApp() {
       /* pointer capture may already be released */
     }
     if (!drag.moved) setSelectedRecordId('')
+    if (!drag.moved) setActiveAttachmentMenuRecordId('')
   }, [])
 
   const handleCanvasPointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -1067,8 +1182,63 @@ function MemoryGraphApp() {
   }, [handleNativeCanvasWheel])
 
   const handleNodeSelect = useCallback((record: GraphMemoryRecord) => {
+    setActiveAttachmentMenuRecordId('')
     setSelectedRecordId(record.id)
   }, [])
+
+  const handleToggleAttachmentMenu = useCallback((record: GraphMemoryRecord) => {
+    setActiveAttachmentMenuRecordId((current) => current === record.id ? '' : record.id)
+  }, [])
+
+  const handleDownloadAttachments = useCallback(async (record: GraphMemoryRecord) => {
+    const attachments = getDownloadableAttachments(record)
+    if (attachments.length === 0) return
+    setActiveAttachmentMenuRecordId('')
+
+    try {
+      for (const attachment of attachments) {
+        const response = await sendMessage<DownloadAttachmentResponse>({
+          type: 'DOWNLOAD_ATTACHMENT',
+          payload: { attachmentId: attachment.id },
+        })
+        if (!response.payload.success || !response.payload.dataUrl || !response.payload.filename) {
+          throw new Error(response.payload.error ?? 'Attachment download failed')
+        }
+        downloadDataUrl(response.payload.filename, response.payload.dataUrl)
+      }
+      showNotice({
+        type: 'success',
+        message: attachments.length === 1 ? 'Attachment downloaded.' : `${attachments.length} attachments downloaded.`,
+      })
+    } catch (err) {
+      showNotice({ type: 'error', message: `Download failed: ${String(err)}` })
+    }
+  }, [showNotice])
+
+  const handlePreviewAttachments = useCallback(async (record: GraphMemoryRecord) => {
+    setActiveAttachmentMenuRecordId('')
+    const imageAttachment = getPreviewableImageAttachment(record)
+    if (!imageAttachment) {
+      showNotice({ type: 'error', message: 'Preview is not supported for this file. Please download it.' })
+      return
+    }
+
+    try {
+      const response = await sendMessage<DownloadAttachmentResponse>({
+        type: 'DOWNLOAD_ATTACHMENT',
+        payload: { attachmentId: imageAttachment.id },
+      })
+      if (!response.payload.success || !response.payload.dataUrl || !response.payload.filename) {
+        throw new Error(response.payload.error ?? 'Image preview failed')
+      }
+      setImagePreview({
+        filename: response.payload.filename,
+        dataUrl: response.payload.dataUrl,
+      })
+    } catch (err) {
+      showNotice({ type: 'error', message: `Preview failed: ${String(err)}` })
+    }
+  }, [showNotice])
 
   const exportSession = useCallback(async (
     session: GraphSessionSummary,
@@ -1334,7 +1504,11 @@ function MemoryGraphApp() {
                 }}
               >
                 <Timeline
+                  activeAttachmentMenuRecordId={activeAttachmentMenuRecordId}
+                  onDownloadAttachments={handleDownloadAttachments}
+                  onPreviewAttachments={handlePreviewAttachments}
                   onSelect={handleNodeSelect}
+                  onToggleAttachmentMenu={handleToggleAttachmentMenu}
                   records={records}
                   selectedRecordId={selectedRecord?.id ?? ''}
                 />
@@ -1349,6 +1523,10 @@ function MemoryGraphApp() {
           onCopy={handleCopyMessage}
           onExport={handleExportMessage}
           record={selectedRecord}
+        />
+        <ImagePreviewModal
+          onClose={() => setImagePreview(null)}
+          preview={imagePreview}
         />
         {notice && !selectedRecord && <div className={`globalNotice ${notice.type}`}>{notice.message}</div>}
       </main>
@@ -2005,15 +2183,20 @@ html.threadlineGraphPanning .graphCanvas {
   z-index: 1;
   width: 100%;
   display: block;
+}
+.nodeSelectButton {
+  width: 100%;
+  display: block;
   border: 1px solid transparent;
   border-radius: 16px;
   background: transparent;
   padding: 0;
   text-align: left;
   cursor: pointer;
+  outline: none;
 }
-.graphNode,
-.graphNode * {
+.nodeSelectButton,
+.nodeSelectButton * {
   cursor: pointer;
 }
 .graphNode::before {
@@ -2031,8 +2214,9 @@ html.threadlineGraphPanning .graphCanvas {
   height: 20px;
   top: -20px;
 }
-.graphNode:hover .nodeBody,
-.graphNode.active .nodeBody {
+.nodeSelectButton:hover .nodeBody,
+.graphNode.active .nodeBody,
+.nodeSelectButton:focus-visible .nodeBody {
   border-color: var(--aim-accent);
 }
 .graphNode.flashTarget .nodeBody {
@@ -2052,6 +2236,7 @@ html.threadlineGraphPanning .graphCanvas {
   }
 }
 .nodeBody {
+  position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -2062,6 +2247,9 @@ html.threadlineGraphPanning .graphCanvas {
   box-shadow: var(--aim-shadow);
   padding: 12px 14px;
   transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+.graphNode.hasAttachments .nodeBody {
+  padding-bottom: 44px;
 }
 .graphNode.user .nodeBody {
   background: color-mix(in srgb, var(--aim-accent) 7%, var(--aim-card));
@@ -2126,6 +2314,65 @@ html.threadlineGraphPanning .graphCanvas {
   color: var(--aim-muted);
   font-size: 12px;
 }
+.nodeAttachmentActions {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 3;
+}
+.nodeAttachmentButton {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--aim-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--aim-btn-bg) 80%, transparent);
+  color: var(--aim-muted);
+  padding: 0;
+  opacity: 0.78;
+  cursor: pointer;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, opacity 0.14s ease;
+}
+.nodeAttachmentButton:hover,
+.nodeAttachmentButton:focus-visible {
+  background: var(--aim-btn-hover);
+  border-color: var(--aim-accent);
+  color: var(--aim-text);
+  opacity: 1;
+  outline: none;
+}
+.nodeAttachmentMenu {
+  position: absolute;
+  right: 0;
+  bottom: 34px;
+  min-width: 124px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--aim-border);
+  border-radius: 10px;
+  background: var(--aim-card);
+  box-shadow: var(--aim-shadow);
+  padding: 4px;
+}
+.nodeAttachmentMenu button {
+  min-height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--aim-text);
+  padding: 0 9px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nodeAttachmentMenu button:hover,
+.nodeAttachmentMenu button:focus-visible {
+  background: var(--aim-btn-hover);
+  outline: none;
+}
 .messagePanel {
   min-width: 0;
 }
@@ -2175,6 +2422,58 @@ html.threadlineGraphPanning .graphCanvas {
   background: var(--aim-error-bg);
   color: var(--aim-error-text);
   border-color: transparent;
+}
+.previewOverlay {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: color-mix(in srgb, var(--aim-bg) 72%, transparent);
+  backdrop-filter: blur(8px);
+}
+.previewDialog {
+  width: min(920px, calc(100vw - 56px));
+  max-height: calc(100vh - 56px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid var(--aim-border);
+  border-radius: 16px;
+  background: var(--aim-card);
+  box-shadow: var(--aim-shadow);
+  overflow: hidden;
+}
+.previewHeader {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--aim-border-light);
+}
+.previewHeader strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.previewImageFrame {
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--aim-bg-secondary);
+  padding: 12px;
+}
+.previewImageFrame img {
+  max-width: 100%;
+  max-height: calc(100vh - 150px);
+  object-fit: contain;
+  border-radius: 10px;
 }
 .messageFacts {
   display: grid;

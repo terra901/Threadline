@@ -1,12 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react'
 import type { CaptureMode } from '../../constants/capture'
+import type { AttachmentSaveMode } from '../../constants/attachments'
+import { DEFAULT_ATTACHMENT_SAVE_MODE } from '../../constants/attachments'
 import { useTranslation } from '../../i18n/LanguageContext'
 import { useTheme } from '../../i18n/ThemeContext'
 import { getThemeTokens } from '../../ui/theme'
 import { getCaptureModeTone } from '../../ui/captureModeTone'
 import { ChevronLeftIcon, TrashIcon } from '../../ui/icons'
 import * as S from '../../ui/styles'
-import type { ClearAllMemoriesResponse, GetCaptureModeResponse, SetCaptureModeResponse } from '../../types/messages'
+import type {
+  ClearAllMemoriesResponse,
+  GetAttachmentSaveModeResponse,
+  GetCaptureModeResponse,
+  SetAttachmentSaveModeResponse,
+  SetCaptureModeResponse,
+} from '../../types/messages'
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -23,7 +31,9 @@ export function SettingsView({ onBack, onAllDeleted }: SettingsViewProps) {
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [captureMode, setCaptureMode] = useState<CaptureMode>('auto')
+  const [attachmentMode, setAttachmentMode] = useState<AttachmentSaveMode>(DEFAULT_ATTACHMENT_SAVE_MODE)
   const [savingMode, setSavingMode] = useState(false)
+  const [savingAttachmentMode, setSavingAttachmentMode] = useState(false)
   const [deleteStatus, setDeleteStatus] = useState<string | null>(null)
   const [modeToast, setModeToast] = useState<{ type: 'success' | 'error'; mode?: CaptureMode; message: string } | null>(null)
   const modeToastTimerRef = useRef<number | null>(null)
@@ -31,6 +41,9 @@ export function SettingsView({ onBack, onAllDeleted }: SettingsViewProps) {
   useEffect(() => {
     chrome.runtime.sendMessage({ type: 'GET_CAPTURE_MODE' }, (response: GetCaptureModeResponse | undefined) => {
       if (response?.payload?.mode) setCaptureMode(response.payload.mode)
+    })
+    chrome.runtime.sendMessage({ type: 'GET_ATTACHMENT_SAVE_MODE' }, (response: GetAttachmentSaveModeResponse | undefined) => {
+      if (response?.payload?.mode) setAttachmentMode(response.payload.mode)
     })
   }, [])
 
@@ -65,6 +78,21 @@ export function SettingsView({ onBack, onAllDeleted }: SettingsViewProps) {
       showModeToast('error', t.captureModeUpdateFailed(String(err)))
     } finally {
       setSavingMode(false)
+    }
+  }
+
+  const updateAttachmentMode = async (mode: AttachmentSaveMode) => {
+    if (mode === attachmentMode || savingAttachmentMode) return
+    setSavingAttachmentMode(true)
+    try {
+      const response = await new Promise<SetAttachmentSaveModeResponse>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'SET_ATTACHMENT_SAVE_MODE', payload: { mode } }, resolve)
+      })
+      if (response?.payload?.success) {
+        setAttachmentMode(response.payload.mode)
+      }
+    } finally {
+      setSavingAttachmentMode(false)
     }
   }
 
@@ -159,6 +187,47 @@ export function SettingsView({ onBack, onAllDeleted }: SettingsViewProps) {
               )
             })}
           </div>
+        </div>
+      </div>
+
+      <div style={{ borderRadius: 12, border: '1px solid', borderColor: tk.border, backgroundColor: tk.bgCard, padding: '14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.01em', color: tk.text }}>{t.attachmentSaveScope}</div>
+          <div style={{ fontSize: 12, lineHeight: 1.45, color: tk.textMuted }}>{t.attachmentSaveScopeDesc}</div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {([
+            ['text_only', t.attachmentModeTextOnly],
+            ['text_files_and_images', t.attachmentModeTextFilesImages],
+          ] as const).map(([mode, label]) => {
+            const active = attachmentMode === mode
+            return (
+              <button
+                key={mode}
+                type="button"
+                disabled={savingAttachmentMode}
+                onClick={() => updateAttachmentMode(mode)}
+                style={{
+                  borderRadius: 10,
+                  border: `1px solid ${active ? tk.accent : tk.border}`,
+                  backgroundColor: active ? tk.accent : tk.inputBg,
+                  color: active ? '#fff' : tk.text,
+                  cursor: savingAttachmentMode ? 'not-allowed' : 'pointer',
+                  padding: '8px 9px',
+                  fontSize: 12,
+                  fontWeight: 650,
+                  fontFamily: 'inherit',
+                  textAlign: 'left',
+                  minHeight: 38,
+                }}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+        <div style={{ fontSize: 11, lineHeight: 1.45, color: tk.textMuted }}>
+          {t.attachmentSaveNote}
         </div>
       </div>
 

@@ -23,6 +23,11 @@ import {
   safeRuntimeSendMessage,
 } from "../utils/extension-context";
 import { isTransientAssistantMessage } from "../utils/transient-assistant";
+import { scanDomAttachments } from "../utils/attachment-scanner";
+import {
+  consumePendingUploadAttachments,
+  startUploadAttachmentCapture,
+} from "../utils/upload-attachment-capture";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://chatgpt.com/*"],
@@ -283,12 +288,13 @@ function createDomSyncSignature(messages: DomMessage[]): string {
       msg.roundIndex ?? "",
       msg.branchIndex ?? "",
       msg.content.length,
+      msg.attachments?.map((attachment) => attachment.id).sort().join(",") ?? "",
     ].join(":"))
     .join("|");
 }
 
 /** Scan the current DOM and return all discovered DomMessage objects. */
-function scanDomMessages(sessionId: string): DomMessage[] {
+async function scanDomMessages(sessionId: string): Promise<DomMessage[]> {
   const results: DomMessage[] = [];
   const pageTitle = document.title ?? "";
   const scannedAt = Date.now();
@@ -325,6 +331,16 @@ function scanDomMessages(sessionId: string): DomMessage[] {
 
       if (isTransientAssistantMessage(role, content)) continue;
 
+      const attachments = await scanDomAttachments({
+        messageId,
+        root: bubble,
+        includeImages: true,
+        includeFiles: true,
+      });
+      if (role === "user") {
+        attachments.push(...await consumePendingUploadAttachments(messageId));
+      }
+
       results.push({
         messageId,
         role,
@@ -334,6 +350,7 @@ function scanDomMessages(sessionId: string): DomMessage[] {
         sessionId,
         pageTitle,
         scannedAt,
+        ...(attachments.length > 0 && { attachments }),
       });
     }
   }
@@ -374,8 +391,8 @@ const _scanTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const _lastSentSignatures = new Map<string, string>();
 let _waitingForMessageNodes = false;
 
-function scanAndSendIfChanged(sessionId: string): void {
-  const messages = scanDomMessages(sessionId);
+async function scanAndSendIfChanged(sessionId: string): Promise<void> {
+  const messages = await scanDomMessages(sessionId);
   if (!messages.length) return;
   const signature = createDomSyncSignature(messages);
   if (_lastSentSignatures.get(sessionId) === signature) return;
@@ -390,7 +407,7 @@ function scheduleDomSync(sessionId: string, delay = 900): void {
     sessionId,
     setTimeout(() => {
       _scanTimers.delete(sessionId);
-      scanAndSendIfChanged(sessionId);
+      void scanAndSendIfChanged(sessionId);
     }, delay),
   );
 }
@@ -451,8 +468,7 @@ safeRuntimeOnMessage((message, _sender, sendResponse) => {
   if (message?.type !== "REQUEST_DOM_SYNC_NOW") return false;
   const sessionId = extractSessionId();
   if (sessionId) {
-    const messages = scanDomMessages(sessionId);
-    sendDomSync(messages);
+    void scanDomMessages(sessionId).then(sendDomSync);
   }
   sendResponse({ success: true });
   return false;
@@ -500,6 +516,7 @@ function scheduleInjection(): void {
 const observer = new MutationObserver(scheduleInjection);
 
 function start(): void {
+  startUploadAttachmentCapture();
   tryInjectButton();
   observer.observe(document.body, { childList: true, subtree: true });
 

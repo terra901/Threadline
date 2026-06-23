@@ -1,6 +1,6 @@
 import { db } from './db'
-import { MODEL_NAME, EMBEDDING_VERSION } from './embedding'
-import { embedBatchViaOffscreen } from './index'
+import { MODEL_NAME, EMBEDDING_VERSION } from '../constants/embedding'
+import { embedBatchViaOffscreen } from './offscreen'
 
 let _isProcessing = false
 

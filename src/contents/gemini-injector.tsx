@@ -18,6 +18,11 @@ import {
   safeRuntimeOnMessage,
   safeRuntimeSendMessage,
 } from "../utils/extension-context";
+import { scanDomAttachments } from "../utils/attachment-scanner";
+import {
+  consumePendingUploadAttachments,
+  startUploadAttachmentCapture,
+} from "../utils/upload-attachment-capture";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://gemini.google.com/*"],
@@ -244,6 +249,7 @@ interface GeminiMessage {
   content: string;
   turnIndex: number;
   containerId: string;
+  root: Element;
 }
 
 function stableMessageHash(value: string): string {
@@ -258,10 +264,10 @@ function stableMessageHash(value: string): string {
  * Extract all messages from a single turn container div.
  * Returns [] if container is not yet fully rendered.
  */
-function extractContainerMessages(
+async function extractContainerMessages(
   container: Element,
   turnIndex: number,
-): GeminiMessage[] {
+): Promise<GeminiMessage[]> {
   const containerId = container.id;
   if (!containerId) return [];
 
@@ -280,6 +286,7 @@ function extractContainerMessages(
   // User message
   const userLines = container.querySelectorAll<HTMLElement>(USER_TEXT_SELECTOR);
   if (userLines.length > 0) {
+    const userRoot = container.querySelector("user-query") ?? container;
     const content = Array.from(userLines)
       .map((p) => p.innerText?.trim() ?? "")
       .filter(Boolean)
@@ -291,6 +298,7 @@ function extractContainerMessages(
         content,
         turnIndex: resolvedTurnIndex * 2,
         containerId,
+        root: userRoot,
       });
     }
   }
@@ -307,6 +315,7 @@ function extractContainerMessages(
         content,
         turnIndex: resolvedTurnIndex * 2 + 1,
         containerId,
+        root: responseDiv,
       });
     }
   }
@@ -341,7 +350,7 @@ const _scannedConversations = new Set<string>();
 let _activeContainerObserver: MutationObserver | null = null;
 let _activeSyncCleanup: (() => void) | null = null;
 
-function runDomSync(conversationId: string): void {
+async function runDomSync(conversationId: string): Promise<void> {
   const scroller = document.querySelector(CHAT_CONTAINER_SELECTOR);
   if (!scroller) return;
 
@@ -356,8 +365,17 @@ function runDomSync(conversationId: string): void {
   const domMessages: DomMessage[] = [];
 
   for (let i = 0; i < containers.length; i++) {
-    const extracted = extractContainerMessages(containers[i], i);
+    const extracted = await extractContainerMessages(containers[i], i);
     for (const msg of extracted) {
+      const attachments = await scanDomAttachments({
+        messageId: msg.messageId,
+        root: msg.root,
+        includeImages: true,
+        includeFiles: true,
+      });
+      if (msg.role === "user") {
+        attachments.push(...await consumePendingUploadAttachments(msg.messageId));
+      }
       domMessages.push({
         messageId: msg.messageId,
         role: msg.role,
@@ -367,6 +385,7 @@ function runDomSync(conversationId: string): void {
         sessionId,
         pageTitle,
         scannedAt,
+        ...(attachments.length > 0 && { attachments }),
       });
     }
   }
@@ -396,14 +415,14 @@ function waitForDomAndSync(conversationId: string): () => void {
   const hardTimeout = setTimeout(() => {
     syncObserver.disconnect();
     if (settleTimer) clearTimeout(settleTimer);
-    runDomSync(conversationId);
+    void runDomSync(conversationId);
   }, MAX_WAIT_MS);
 
   function onSettle(): void {
     clearTimeout(hardTimeout); // prevent redundant re-fire
     // Scrape on each settle (content dedup in sendCapturedTurn prevents re-sending).
     // Keep the observer alive so lazy-loaded older messages (e.g. scrolling up) are also captured.
-    runDomSync(conversationId);
+    void runDomSync(conversationId);
   }
 
   function resetSettle(): void {
@@ -453,11 +472,11 @@ function watchForNewContainers(conversationId: string): MutationObserver | null 
     const SETTLE_MS = 1200; // wait for streaming to complete
     containerTimers.set(
       containerId,
-      setTimeout(() => {
+      setTimeout(async () => {
         containerTimers.delete(containerId);
         if (_capturedContainerIds.has(containerId)) return;
 
-        const extracted = extractContainerMessages(container, -1);
+        const extracted = await extractContainerMessages(container, -1);
         // Only capture if we have both user AND assistant message
         const hasUser = extracted.some((m) => m.role === "user");
         const hasAssistant = extracted.some((m) => m.role === "assistant");
@@ -470,16 +489,29 @@ function watchForNewContainers(conversationId: string): MutationObserver | null 
         _capturedContainerIds.add(containerId);
         const pageTitle = getPageTitle();
         const scannedAt = Date.now();
-        const domMessages: DomMessage[] = extracted.map((m) => ({
-          messageId: m.messageId,
-          role: m.role,
-          content: m.content,
-          turnIndex: m.turnIndex,
-          roundIndex: Math.max(0, Math.floor(m.turnIndex / 2)),
-          sessionId,
-          pageTitle,
-          scannedAt,
-        }));
+        const domMessages: DomMessage[] = [];
+        for (const m of extracted) {
+          const attachments = await scanDomAttachments({
+            messageId: m.messageId,
+            root: m.root,
+            includeImages: true,
+            includeFiles: true,
+          });
+          if (m.role === "user") {
+            attachments.push(...await consumePendingUploadAttachments(m.messageId));
+          }
+          domMessages.push({
+            messageId: m.messageId,
+            role: m.role,
+            content: m.content,
+            turnIndex: m.turnIndex,
+            roundIndex: Math.max(0, Math.floor(m.turnIndex / 2)),
+            sessionId,
+            pageTitle,
+            scannedAt,
+            ...(attachments.length > 0 && { attachments }),
+          });
+        }
         sendGeminiDomSync(domMessages);
       }, SETTLE_MS),
     );
@@ -529,7 +561,7 @@ function maybeSyncConversation(): void {
 safeRuntimeOnMessage((message, _sender, sendResponse) => {
   if (message?.type !== "REQUEST_DOM_SYNC_NOW") return false;
   const conversationId = extractGeminiConversationId();
-  if (conversationId) runDomSync(conversationId);
+  if (conversationId) void runDomSync(conversationId);
   sendResponse({ success: true });
   return false;
 });
@@ -558,6 +590,7 @@ function scheduleInjection(): void {
 const observer = new MutationObserver(scheduleInjection);
 
 function start(): void {
+  startUploadAttachmentCapture();
   tryInjectButton();
   observer.observe(document.body, { childList: true, subtree: true });
 

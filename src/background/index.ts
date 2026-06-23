@@ -11,7 +11,7 @@
  */
 
 import { mainWorldInterceptor } from "./injector";
-import { MODEL_NAME } from "./embedding";
+import { MODEL_NAME } from "../constants/embedding";
 import { ChatGPTAdapter } from "./adapters/chatgpt";
 import { ClaudeAdapter } from "./adapters/claude";
 import { GeminiAdapter } from "./adapters/gemini";
@@ -41,6 +41,11 @@ import type {
   GetCaptureModeResponse,
   SetCaptureModeRequest,
   SetCaptureModeResponse,
+  GetAttachmentSaveModeResponse,
+  SetAttachmentSaveModeRequest,
+  SetAttachmentSaveModeResponse,
+  DownloadAttachmentRequest,
+  DownloadAttachmentResponse,
   SearchMemoriesRequest,
   ImportMemoriesRequest,
   DomSyncRequest,
@@ -71,6 +76,8 @@ import {
 } from "./pendingSessions";
 import { CAPTURE_MODE_STORAGE_KEY, PENDING_MEMORY_SESSIONS_STORAGE_KEY, isCaptureMode } from "../constants/capture";
 import { MEMORY_EXPORT_APP_NAME } from "../constants/branding";
+import { DEFAULT_ATTACHMENT_SAVE_MODE, normalizeAttachmentSaveMode } from "../constants/attachments";
+import { getAttachmentDownload, getAttachmentSaveMode, setAttachmentSaveMode } from "./attachments";
 
 // Re-export for backward compatibility (tests import chunkText/expandToChunks from this module)
 export { chunkText, expandToChunks } from "./chunking";
@@ -346,6 +353,41 @@ async function handleSetCaptureMode(
     type: "SET_CAPTURE_MODE_RESPONSE",
     payload: { success: true, mode },
   };
+}
+
+async function handleGetAttachmentSaveMode(): Promise<GetAttachmentSaveModeResponse> {
+  return {
+    type: "GET_ATTACHMENT_SAVE_MODE_RESPONSE",
+    payload: { mode: await getAttachmentSaveMode() },
+  };
+}
+
+async function handleSetAttachmentSaveMode(
+  message: SetAttachmentSaveModeRequest,
+): Promise<SetAttachmentSaveModeResponse> {
+  const mode = normalizeAttachmentSaveMode(message.payload?.mode);
+  await setAttachmentSaveMode(mode);
+  return {
+    type: "SET_ATTACHMENT_SAVE_MODE_RESPONSE",
+    payload: { success: true, mode },
+  };
+}
+
+async function handleDownloadAttachment(
+  message: DownloadAttachmentRequest,
+): Promise<DownloadAttachmentResponse> {
+  try {
+    const download = await getAttachmentDownload(message.payload?.attachmentId);
+    return {
+      type: "DOWNLOAD_ATTACHMENT_RESPONSE",
+      payload: { success: true, ...download },
+    };
+  } catch (err) {
+    return {
+      type: "DOWNLOAD_ATTACHMENT_RESPONSE",
+      payload: { success: false, error: String(err) },
+    };
+  }
 }
 
 async function handleOpenMemoryGraph(
@@ -624,6 +666,43 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({
             type: "SET_CAPTURE_MODE_RESPONSE",
             payload: { success: false, mode: "auto", error: String(err) },
+          }),
+        );
+      return true;
+
+    case "GET_ATTACHMENT_SAVE_MODE":
+      handleGetAttachmentSaveMode()
+        .then(sendResponse)
+        .catch(() =>
+          sendResponse({
+            type: "GET_ATTACHMENT_SAVE_MODE_RESPONSE",
+            payload: { mode: DEFAULT_ATTACHMENT_SAVE_MODE },
+          }),
+        );
+      return true;
+
+    case "SET_ATTACHMENT_SAVE_MODE":
+      handleSetAttachmentSaveMode(message as SetAttachmentSaveModeRequest)
+        .then(sendResponse)
+        .catch((err) =>
+          sendResponse({
+            type: "SET_ATTACHMENT_SAVE_MODE_RESPONSE",
+            payload: {
+              success: false,
+              mode: DEFAULT_ATTACHMENT_SAVE_MODE,
+              error: String(err),
+            },
+          }),
+        );
+      return true;
+
+    case "DOWNLOAD_ATTACHMENT":
+      handleDownloadAttachment(message as DownloadAttachmentRequest)
+        .then(sendResponse)
+        .catch((err) =>
+          sendResponse({
+            type: "DOWNLOAD_ATTACHMENT_RESPONSE",
+            payload: { success: false, error: String(err) },
           }),
         );
       return true;

@@ -9,6 +9,7 @@
  */
 
 import { pipeline, env, type FeatureExtractionPipeline } from '@xenova/transformers'
+import { EMBEDDING_VERSION, MODEL_NAME } from '../constants/embedding'
 
 // Allow remote model download from Hugging Face CDN.
 // Model files are fetched on first use and cached by the browser.
@@ -20,9 +21,6 @@ env.allowRemoteModels = true
 // CSP blocks ("script-src 'self' 'wasm-unsafe-eval'" does not allow blob:).
 // numThreads=1 makes ONNX use the non-threaded wasm file with no workers.
 env.backends.onnx.wasm.numThreads = 1
-
-const MODEL_NAME = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2'
-const EMBEDDING_VERSION = '1.0.0'
 
 // ─── Singleton Model ──────────────────────────────────────────────────────────
 

@@ -1,5 +1,6 @@
 import type { CaptureMode } from '../constants/capture'
-import type { AIProvider, ErrorLog, FavoritePrompt, GraphMemoryRecord, IMemoryExportEnvelope, MemoryRecord, MemorySessionSummary, PromptFolder, SerializableMemoryRecord } from './memory'
+import type { AttachmentSaveMode } from '../constants/attachments'
+import type { AIProvider, DomAttachmentCandidate, ErrorLog, FavoritePrompt, GraphMemoryRecord, IMemoryExportEnvelope, MemoryRecord, MemorySessionSummary, PromptFolder, SerializableMemoryRecord } from './memory'
 
 // ─── CAPTURE_MESSAGE ─────────────────────────────────────────────────────────
 // Direction: Content Script → Background Service Worker
@@ -183,6 +184,48 @@ export interface SetCaptureModeResponse {
   payload: { success: boolean; mode: CaptureMode; error?: string }
 }
 
+// ─── ATTACHMENT_SAVE_MODE ────────────────────────────────────────────────────
+// Direction: UI → Background
+
+export interface GetAttachmentSaveModeRequest {
+  type: 'GET_ATTACHMENT_SAVE_MODE'
+}
+
+export interface GetAttachmentSaveModeResponse {
+  type: 'GET_ATTACHMENT_SAVE_MODE_RESPONSE'
+  payload: { mode: AttachmentSaveMode }
+}
+
+export interface SetAttachmentSaveModeRequest {
+  type: 'SET_ATTACHMENT_SAVE_MODE'
+  payload: { mode: AttachmentSaveMode }
+}
+
+export interface SetAttachmentSaveModeResponse {
+  type: 'SET_ATTACHMENT_SAVE_MODE_RESPONSE'
+  payload: {
+    success: boolean
+    mode: AttachmentSaveMode
+    error?: string
+  }
+}
+
+export interface DownloadAttachmentRequest {
+  type: 'DOWNLOAD_ATTACHMENT'
+  payload: { attachmentId: string }
+}
+
+export interface DownloadAttachmentResponse {
+  type: 'DOWNLOAD_ATTACHMENT_RESPONSE'
+  payload: {
+    success: boolean
+    filename?: string
+    mimeType?: string
+    dataUrl?: string
+    error?: string
+  }
+}
+
 // ─── OPEN_MEMORY_PANEL ───────────────────────────────────────────────────────
 // Direction: Background → Content Script
 
@@ -325,6 +368,8 @@ export interface DomMessage {
   pageTitle: string
   /** Unix ms timestamp when the scan ran */
   scannedAt: number
+  /** Images/files discovered in the rendered message bubble. */
+  attachments?: DomAttachmentCandidate[]
 }
 
 export interface DomSyncRequest {
@@ -376,6 +421,12 @@ export type ExtensionMessage =
   | GetCaptureModeResponse
   | SetCaptureModeRequest
   | SetCaptureModeResponse
+  | GetAttachmentSaveModeRequest
+  | GetAttachmentSaveModeResponse
+  | SetAttachmentSaveModeRequest
+  | SetAttachmentSaveModeResponse
+  | DownloadAttachmentRequest
+  | DownloadAttachmentResponse
   | OpenMemoryPanel
   | RequestDomSyncNow
   | OpenMemoryGraph
@@ -402,6 +453,9 @@ export type ExtensionMessageResponse =
   | DeleteMemorySessionResponse
   | GetCaptureModeResponse
   | SetCaptureModeResponse
+  | GetAttachmentSaveModeResponse
+  | SetAttachmentSaveModeResponse
+  | DownloadAttachmentResponse
   | OpenMemoryGraphResponse
   | SearchMemoriesResponse
   | ExportMemoriesResponse

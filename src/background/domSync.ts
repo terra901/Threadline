@@ -6,6 +6,7 @@ import { safeAddRecord, isCaptureEnabled, db } from "./db";
 import { miniSearch } from "./search";
 import { normalizeContent } from "./adapters/base";
 import { isTransientAssistantMessage } from "../utils/transient-assistant";
+import { getAttachmentSaveMode, saveDomAttachments } from "./attachments";
 
 // ─── DOM Sync Handler ─────────────────────────────────────────────────────────
 // Processes historical messages discovered by the DOM scanner in chatgpt-injector.
@@ -406,6 +407,7 @@ export async function handleDomSync(
   }
 
   const messages = await resolveDomGraphMessages(captureMessages, provider);
+  const attachmentMode = await getAttachmentSaveMode();
 
   // Bulk deduplication — one DB round-trip for all message IDs
   const allIds = messages.map((m) => m.messageId);
@@ -480,6 +482,24 @@ export async function handleDomSync(
   if (shouldPersist) {
     for (const record of recordsToSave) {
       enqueueSyncRecord(record);
+    }
+    const attachmentsBySession = new Map<string, ResolvedDomMessage["attachments"]>();
+    for (const msg of messages) {
+      if (!msg.attachments?.length) continue;
+      const current = attachmentsBySession.get(msg.sessionId) ?? [];
+      current.push(...msg.attachments);
+      attachmentsBySession.set(msg.sessionId, current);
+    }
+    for (const [sessionId, candidates] of attachmentsBySession.entries()) {
+      if (!candidates?.length) continue;
+      void saveDomAttachments({
+        provider,
+        sessionId,
+        candidates,
+        mode: attachmentMode,
+      }).catch((err) => {
+        console.warn("[Threadline] Attachment save failed:", err);
+      });
     }
   } else {
     await options?.cachePendingRecords?.(recordsToSave);
