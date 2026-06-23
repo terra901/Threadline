@@ -66,6 +66,8 @@ Load the extension:
 3. **Load unpacked**를 클릭합니다.
 4. `build/chrome-mv3-prod`를 선택합니다.
 
+설치 출처를 바꾸거나, 다시 설치하거나, unpacked build와 브라우저 스토어 버전 사이를 전환하기 전에는 먼저 Threadline 백업을 내보내세요. 브라우저 확장 데이터는 extension ID별로 격리되므로, 한 extension ID에 저장된 IndexedDB와 `chrome.storage.local` 데이터는 다른 extension ID에서 자동으로 읽을 수 없습니다.
+
 Development:
 
 ```bash

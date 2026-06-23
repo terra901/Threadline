@@ -66,6 +66,8 @@ Erweiterung laden:
 3. Klicke auf **Load unpacked**.
 4. Wähle `build/chrome-mv3-prod`.
 
+Bevor du die Installationsquelle wechselst, neu installierst oder zwischen einem unpacked build und einer Browser-Store-Version wechselst, exportiere zuerst ein Threadline-Backup. Browser-Erweiterungsdaten sind nach extension ID isoliert: IndexedDB- und `chrome.storage.local`-Daten, die unter einer extension ID gespeichert wurden, können von einer anderen extension ID nicht automatisch gelesen werden.
+
 Entwicklung:
 
 ```bash

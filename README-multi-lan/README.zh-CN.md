@@ -66,6 +66,8 @@ pnpm build
 3. 点击 **加载已解压的扩展程序**。
 4. 选择 `build/chrome-mv3-prod`。
 
+在更换安装来源、重新安装，或在未打包版本和浏览器商店版本之间切换前，请先导出 Threadline 备份。浏览器扩展数据按 extension ID 隔离：保存在一个 extension ID 下的 IndexedDB 和 `chrome.storage.local` 数据，不能被另一个 extension ID 自动读取。
+
 开发模式：
 
 ```bash

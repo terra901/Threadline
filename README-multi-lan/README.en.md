@@ -66,6 +66,8 @@ Load the extension:
 3. Click **Load unpacked**.
 4. Select `build/chrome-mv3-prod`.
 
+Before changing installation source, reinstalling, or moving between an unpacked build and a browser store build, export a Threadline backup first. Browser extension data is isolated by extension ID, so data saved under one extension ID cannot be read automatically by another extension ID.
+
 For development:
 
 ```bash
