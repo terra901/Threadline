@@ -394,7 +394,7 @@ export class MemoryDatabase extends Dexie {
     const existing = await this.memories.bulkGet(uuids);
     const found = new Set<string>();
     existing.forEach((r, i) => {
-      if (r) found.add(uuids[i]);
+      if (r && !r.isDeleted) found.add(uuids[i]);
     });
     return uuids.filter((id) => !found.has(id));
   }
@@ -413,9 +413,9 @@ export class MemoryDatabase extends Dexie {
     const key = `dom:${messageId}`;
     // A single chunk also means the parent was stored — check both.
     const direct = await this.memories.get(key);
-    if (direct) return true;
+    if (direct && !direct.isDeleted) return true;
     const firstChunk = await this.memories.get(`${key}-c0`);
-    return !!firstChunk;
+    return !!firstChunk && !firstChunk.isDeleted;
   }
 
   /**
@@ -430,7 +430,9 @@ export class MemoryDatabase extends Dexie {
     const foundSet = new Set<string>();
     for (let i = 0; i < messageIds.length; i++) {
       // each messageId maps to indices [i*2, i*2+1] in the bulkGet result
-      if (existing[i * 2] || existing[i * 2 + 1]) {
+      const direct = existing[i * 2];
+      const firstChunk = existing[i * 2 + 1];
+      if ((direct && !direct.isDeleted) || (firstChunk && !firstChunk.isDeleted)) {
         foundSet.add(messageIds[i]);
       }
     }
@@ -797,6 +799,17 @@ export async function safeAddRecord(
   try {
     return await db.addRecord(record);
   } catch (err) {
+    if (isConstraintError(err)) {
+      const existing = await db.memories.get(record.id);
+      if (existing?.isDeleted) {
+        await db.memories.put({
+          ...record,
+          hasEmbedding: record.embedding && record.embedding.length > 0 ? 1 : 0,
+        } as MemoryRecord);
+        return record.id;
+      }
+    }
+
     const isQuota =
       err instanceof DOMException &&
       (err.name === "QuotaExceededError" ||
@@ -815,6 +828,17 @@ export async function safeAddRecord(
     }
     return null;
   }
+}
+
+function isConstraintError(err: unknown): boolean {
+  return (
+    err instanceof DOMException && err.name === "ConstraintError"
+  ) || (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    (err as { name?: unknown }).name === "ConstraintError"
+  );
 }
 
 export const memoryDB = new MemoryDatabase();

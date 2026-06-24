@@ -14,6 +14,17 @@ vi.mock('../../../src/background/search', () => ({
   },
 }))
 
+async function waitForGraphRecordIds(sessionId: string, ids: string[]): Promise<void> {
+  const expected = ids.join(',')
+  for (let i = 0; i < 30; i += 1) {
+    const graph = await db.getSessionGraph(sessionId)
+    if (graph.records.map((record) => record.id).join(',') === expected) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  const graph = await db.getSessionGraph(sessionId)
+  expect(graph.records.map((record) => record.id)).toEqual(ids)
+}
+
 describe('handleDomSync branch graph metadata', () => {
   beforeEach(async () => {
     await db.delete()
@@ -428,6 +439,64 @@ describe('handleDomSync branch graph metadata', () => {
     expect(await db.attachmentBlobs.count()).toBe(1)
 
     vi.unstubAllGlobals()
+  })
+
+  it('recaptures an existing DOM session after the session was deleted', async () => {
+    const { handleDomSync } = await import('../../../src/background/domSync')
+
+    const request: DomSyncRequest = {
+      type: 'DOM_SYNC',
+      payload: {
+        provider: 'openai',
+        url: 'https://chatgpt.com/c/conversation-7',
+        messages: [
+          {
+            messageId: 'recapture-user',
+            role: 'user',
+            content: 'Summarize this session',
+            turnIndex: 1,
+            roundIndex: 0,
+            sessionId: 'openai:conversation-7',
+            pageTitle: 'Recapture chat',
+            scannedAt: 8_000,
+          },
+          {
+            messageId: 'recapture-assistant',
+            role: 'assistant',
+            content: 'This session is about local memory.',
+            turnIndex: 2,
+            roundIndex: 0,
+            sessionId: 'openai:conversation-7',
+            pageTitle: 'Recapture chat',
+            scannedAt: 9_000,
+          },
+        ],
+      },
+    }
+
+    const first = await handleDomSync(request)
+    expect(first.payload).toMatchObject({ queued: 2, skipped: 0 })
+    await waitForGraphRecordIds('openai:conversation-7', [
+      'recapture-user',
+      'recapture-assistant',
+    ])
+
+    await db.deleteSession('openai:conversation-7')
+    expect(await db.getSessionGraph('openai:conversation-7')).toMatchObject({ records: [] })
+
+    const second = await handleDomSync(request)
+    await waitForGraphRecordIds('openai:conversation-7', [
+      'recapture-user',
+      'recapture-assistant',
+    ])
+    const graph = await db.getSessionGraph('openai:conversation-7')
+
+    expect(second.payload).toMatchObject({ queued: 2, skipped: 0 })
+    expect(graph.records.map((record) => record.id)).toEqual([
+      'recapture-user',
+      'recapture-assistant',
+    ])
+    expect(graph.records.every((record) => record.isDeleted === false)).toBe(true)
   })
 })
 
