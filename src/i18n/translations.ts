@@ -38,6 +38,8 @@ export interface Translations {
   attachmentModeTextOnly: string
   attachmentModeTextFilesImages: string
   attachmentSaveNote: string
+  recallButtonLabel: string
+  recallButtonDesc: string
   favoritePrompts: string
   promptPlaceholder: string
   savePrompt: string
@@ -178,6 +180,8 @@ export const translations: Record<LangCode, Translations> = {
     attachmentModeTextOnly: '僅文字',
     attachmentModeTextFilesImages: '文字 + 文件 + 圖片',
     attachmentSaveNote: '歷史文件只有在頁面仍提供可訪問連結時才能保存。',
+    recallButtonLabel: 'Recall 按鈕',
+    recallButtonDesc: '在輸入框旁顯示 Recall 按鈕，用於召回過去的記憶。',
     favoritePrompts: '常用 Prompt',
     promptPlaceholder: '在這裡撰寫你的 Prompt…',
     savePrompt: '儲存',
@@ -294,6 +298,8 @@ export const translations: Record<LangCode, Translations> = {
     attachmentModeTextOnly: '仅文本',
     attachmentModeTextFilesImages: '文本 + 文件 + 图片',
     attachmentSaveNote: '历史文件只有在页面仍提供可访问链接时才能保存。',
+    recallButtonLabel: 'Recall 按钮',
+    recallButtonDesc: '在输入框旁显示 Recall 按钮，用于召回过去的记忆。',
     favoritePrompts: '常用 Prompt',
     promptPlaceholder: '在这里撰写你的 Prompt…',
     savePrompt: '保存',
@@ -410,6 +416,8 @@ export const translations: Record<LangCode, Translations> = {
     attachmentModeTextOnly: 'Text only',
     attachmentModeTextFilesImages: 'Text + files + images',
     attachmentSaveNote: 'Historical files can only be saved when the page still exposes an accessible link.',
+    recallButtonLabel: 'Recall Button',
+    recallButtonDesc: 'Show the Recall button next to the input box to retrieve past memories.',
     favoritePrompts: 'Favorite Prompts',
     promptPlaceholder: 'Write your prompt here…',
     savePrompt: 'Save',
@@ -526,6 +534,8 @@ export const translations: Record<LangCode, Translations> = {
     attachmentModeTextOnly: 'テキストのみ',
     attachmentModeTextFilesImages: 'テキスト + ファイル + 画像',
     attachmentSaveNote: '過去のファイルは、ページにアクセス可能なリンクが残っている場合のみ保存できます。',
+    recallButtonLabel: 'Recall ボタン',
+    recallButtonDesc: '入力欄の横に Recall ボタンを表示し、過去の記憶を呼び出せます。',
     favoritePrompts: 'お気に入りプロンプト',
     promptPlaceholder: 'プロンプトをここに入力…',
     savePrompt: '保存',
@@ -642,6 +652,8 @@ export const translations: Record<LangCode, Translations> = {
     attachmentModeTextOnly: '텍스트만',
     attachmentModeTextFilesImages: '텍스트 + 파일 + 이미지',
     attachmentSaveNote: '이전 파일은 페이지에 접근 가능한 링크가 남아 있을 때만 저장할 수 있습니다.',
+    recallButtonLabel: 'Recall 버튼',
+    recallButtonDesc: '입력창 옆에 Recall 버튼을 표시하여 과거 기억을 불러옵니다.',
     favoritePrompts: '즐겨찾기 프롬프트',
     promptPlaceholder: '프롬프트를 여기에 입력하세요…',
     savePrompt: '저장',
@@ -760,6 +772,8 @@ export const translations: Record<LangCode, Translations> = {
     attachmentModeTextOnly: 'Solo texto',
     attachmentModeTextFilesImages: 'Texto + archivos + imágenes',
     attachmentSaveNote: 'Los archivos históricos solo se pueden guardar si la página aún expone un enlace accesible.',
+    recallButtonLabel: 'Botón Recall',
+    recallButtonDesc: 'Muestra el botón Recall junto al cuadro de entrada para recuperar recuerdos pasados.',
     favoritePrompts: 'Prompts favoritos',
     promptPlaceholder: 'Escribe tu prompt aquí…',
     savePrompt: 'Guardar',
@@ -878,6 +892,8 @@ export const translations: Record<LangCode, Translations> = {
     attachmentModeTextOnly: 'Texte seul',
     attachmentModeTextFilesImages: 'Texte + fichiers + images',
     attachmentSaveNote: "Les anciens fichiers ne peuvent être enregistrés que si la page expose encore un lien accessible.",
+    recallButtonLabel: 'Bouton Recall',
+    recallButtonDesc: 'Affiche le bouton Recall à côté de la zone de saisie pour récupérer les souvenirs passés.',
     favoritePrompts: 'Prompts favoris',
     promptPlaceholder: 'Écrivez votre prompt ici…',
     savePrompt: 'Enregistrer',
@@ -996,6 +1012,8 @@ export const translations: Record<LangCode, Translations> = {
     attachmentModeTextOnly: 'Nur Text',
     attachmentModeTextFilesImages: 'Text + Dateien + Bilder',
     attachmentSaveNote: 'Historische Dateien können nur gespeichert werden, wenn die Seite noch einen zugänglichen Link bereitstellt.',
+    recallButtonLabel: 'Recall-Schaltfläche',
+    recallButtonDesc: 'Zeigt die Recall-Schaltfläche neben dem Eingabefeld an, um vergangene Erinnerungen abzurufen.',
     favoritePrompts: 'Lieblingsaufforderungen',
     promptPlaceholder: 'Prompt hier eingeben…',
     savePrompt: 'Speichern',

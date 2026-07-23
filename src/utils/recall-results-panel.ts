@@ -140,26 +140,23 @@ function panelStyles(): string {
     }
     .list {
       min-height: 0;
-      overflow: visible;
-      padding: 8px;
-    }
-    .list.scrollable {
       max-height: min(390px, calc(100vh - 160px));
       overflow-y: auto;
       scrollbar-gutter: stable;
+      padding: 8px;
     }
-    .list.scrollable::-webkit-scrollbar {
+    .list::-webkit-scrollbar {
       width: 8px;
     }
-    .list.scrollable::-webkit-scrollbar-track {
+    .list::-webkit-scrollbar-track {
       background: rgba(255,255,255,0.04);
       border-radius: 999px;
     }
-    .list.scrollable::-webkit-scrollbar-thumb {
+    .list::-webkit-scrollbar-thumb {
       background: rgba(235,235,245,0.28);
       border-radius: 999px;
     }
-    .list.scrollable::-webkit-scrollbar-thumb:hover {
+    .list::-webkit-scrollbar-thumb:hover {
       background: rgba(10,132,255,0.72);
     }
     .item {
@@ -312,9 +309,6 @@ export function showRecallResultsPanel(options: RecallResultsPanelOptions): void
 
   const list = document.createElement("div");
   list.className = "list";
-  if (options.results.length > 3) {
-    list.classList.add("scrollable");
-  }
 
   const selectedCount = createText("div", "selected-count", "Selected 0");
   header.insertBefore(selectedCount, confirmTop);

@@ -15,6 +15,7 @@ import type { PlasmoCSConfig } from "plasmo";
 import { watchOnboardingStep3 } from "../utils/onboarding-highlight";
 import { handleRecallClick as sharedHandleRecallClick } from "../utils/recall-helpers";
 import { createRecallButton as sharedCreateRecallButton } from "../utils/recall-button";
+import { isRecallButtonEnabled, initRecallVisibility } from "../utils/recall-visibility";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://grok.com/*"],
@@ -220,6 +221,10 @@ function findInsertionPoint(): {
 // ─── DOM Injection ────────────────────────────────────────────────────────────
 
 function tryInjectButton(): void {
+  if (!isRecallButtonEnabled()) {
+    document.getElementById(BUTTON_ID)?.parentElement?.remove();
+    return;
+  }
   if (document.getElementById(BUTTON_ID)) return;
 
   const point = findInsertionPoint();
@@ -245,6 +250,7 @@ function scheduleInjection(): void {
 const observer = new MutationObserver(scheduleInjection);
 
 function start(): void {
+  initRecallVisibility(() => tryInjectButton());
   tryInjectButton();
   observer.observe(document.body, { childList: true, subtree: true });
 

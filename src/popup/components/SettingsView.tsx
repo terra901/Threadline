@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import type { CaptureMode } from '../../constants/capture'
 import type { AttachmentSaveMode } from '../../constants/attachments'
 import { DEFAULT_ATTACHMENT_SAVE_MODE } from '../../constants/attachments'
+import { RECALL_BUTTON_ENABLED_KEY } from '../../utils/recall-visibility'
 import { useTranslation } from '../../i18n/LanguageContext'
 import { useTheme } from '../../i18n/ThemeContext'
 import { getThemeTokens } from '../../ui/theme'
@@ -34,6 +35,7 @@ export function SettingsView({ onBack, onAllDeleted }: SettingsViewProps) {
   const [attachmentMode, setAttachmentMode] = useState<AttachmentSaveMode>(DEFAULT_ATTACHMENT_SAVE_MODE)
   const [savingMode, setSavingMode] = useState(false)
   const [savingAttachmentMode, setSavingAttachmentMode] = useState(false)
+  const [recallEnabled, setRecallEnabled] = useState(true)
   const [deleteStatus, setDeleteStatus] = useState<string | null>(null)
   const [modeToast, setModeToast] = useState<{ type: 'success' | 'error'; mode?: CaptureMode; message: string } | null>(null)
   const modeToastTimerRef = useRef<number | null>(null)
@@ -44,6 +46,9 @@ export function SettingsView({ onBack, onAllDeleted }: SettingsViewProps) {
     })
     chrome.runtime.sendMessage({ type: 'GET_ATTACHMENT_SAVE_MODE' }, (response: GetAttachmentSaveModeResponse | undefined) => {
       if (response?.payload?.mode) setAttachmentMode(response.payload.mode)
+    })
+    chrome.storage.local.get([RECALL_BUTTON_ENABLED_KEY], (res) => {
+      setRecallEnabled(res[RECALL_BUTTON_ENABLED_KEY] !== false)
     })
   }, [])
 
@@ -229,6 +234,49 @@ export function SettingsView({ onBack, onAllDeleted }: SettingsViewProps) {
         <div style={{ fontSize: 11, lineHeight: 1.45, color: tk.textMuted }}>
           {t.attachmentSaveNote}
         </div>
+      </div>
+
+      {/* Recall Button Toggle */}
+      <div style={{ borderRadius: 12, border: '1px solid', borderColor: tk.border, backgroundColor: tk.bgCard, padding: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.01em', color: tk.text }}>{t.recallButtonLabel}</div>
+          <div style={{ fontSize: 12, lineHeight: 1.45, color: tk.textMuted }}>{t.recallButtonDesc}</div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={recallEnabled}
+          onClick={() => {
+            const next = !recallEnabled
+            setRecallEnabled(next)
+            chrome.storage.local.set({ [RECALL_BUTTON_ENABLED_KEY]: next })
+          }}
+          style={{
+            position: 'relative',
+            width: 40,
+            height: 22,
+            borderRadius: 11,
+            border: 'none',
+            backgroundColor: recallEnabled ? tk.accent : tk.border,
+            cursor: 'pointer',
+            flexShrink: 0,
+            transition: 'background-color 0.2s',
+            padding: 0,
+          }}
+        >
+          <span
+            style={{
+              position: 'absolute',
+              top: 2,
+              left: recallEnabled ? 20 : 2,
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              backgroundColor: '#fff',
+              transition: 'left 0.2s',
+            }}
+          />
+        </button>
       </div>
 
       {/* Danger Zone */}

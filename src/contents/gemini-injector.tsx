@@ -13,6 +13,7 @@ import type { PlasmoCSConfig } from "plasmo";
 import { watchOnboardingStep3 } from "../utils/onboarding-highlight";
 import { handleRecallClick as sharedHandleRecallClick } from "../utils/recall-helpers";
 import { createRecallButton as sharedCreateRecallButton } from "../utils/recall-button";
+import { isRecallButtonEnabled, initRecallVisibility } from "../utils/recall-visibility";
 import type { DomMessage } from "../types/messages";
 import {
   safeRuntimeOnMessage,
@@ -191,6 +192,11 @@ function findInsertionPoint(): {
 // the wrapper is already detached or in the wrong position.
 
 function tryInjectButton(): void {
+  if (!isRecallButtonEnabled()) {
+    const el = document.getElementById(BUTTON_ID);
+    el?.parentElement?.remove();
+    return;
+  }
   const existing = document.getElementById(BUTTON_ID);
 
   const point = findInsertionPoint();
@@ -591,6 +597,7 @@ const observer = new MutationObserver(scheduleInjection);
 
 function start(): void {
   startUploadAttachmentCapture();
+  initRecallVisibility(() => tryInjectButton());
   tryInjectButton();
   observer.observe(document.body, { childList: true, subtree: true });
 

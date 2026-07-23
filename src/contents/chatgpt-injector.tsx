@@ -18,6 +18,7 @@ import type {
 import { watchOnboardingStep3 } from "../utils/onboarding-highlight";
 import { handleRecallClick as sharedHandleRecallClick } from "../utils/recall-helpers";
 import { createRecallButton as sharedCreateRecallButton } from "../utils/recall-button";
+import { isRecallButtonEnabled, initRecallVisibility } from "../utils/recall-visibility";
 import {
   safeRuntimeOnMessage,
   safeRuntimeSendMessage,
@@ -477,6 +478,10 @@ safeRuntimeOnMessage((message, _sender, sendResponse) => {
 // ─── DOM Injection ────────────────────────────────────────────────────────────
 
 function tryInjectButton(): void {
+  if (!isRecallButtonEnabled()) {
+    document.getElementById(BUTTON_ID)?.parentElement?.remove();
+    return;
+  }
   if (document.getElementById(BUTTON_ID)) return;
 
   const point = findInsertionPoint();
@@ -517,6 +522,7 @@ const observer = new MutationObserver(scheduleInjection);
 
 function start(): void {
   startUploadAttachmentCapture();
+  initRecallVisibility(() => tryInjectButton());
   tryInjectButton();
   observer.observe(document.body, { childList: true, subtree: true });
 
