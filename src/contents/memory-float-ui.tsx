@@ -6,6 +6,7 @@ import {
   openMemoryPanelExternally,
 } from "../popup/components/FloatingMemoryPanel";
 import { safeRuntimeOnMessage } from "../utils/extension-context";
+import { initBulkDeleteModeListener } from "./bulk-delete";
 
 export const config: PlasmoCSConfig = {
   matches: [
@@ -49,6 +50,8 @@ safeRuntimeOnMessage(
     return false;
   },
 );
+
+initBulkDeleteModeListener();
 
 function start() {
   mountFloatUI();

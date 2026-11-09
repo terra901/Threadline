@@ -807,7 +807,7 @@ async function handleImportMemories(message: ImportMemoriesRequest) {
 
 // ─── Message Router ───────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case "CAPTURE_MESSAGE":
       handleCaptureMessage(message as CaptureMessage)
@@ -957,6 +957,49 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         );
       return true;
 
+    case "START_BULK_DELETE_MODE": {
+      const forwardToTab = (tabId: number) => {
+        chrome.tabs.sendMessage(
+          tabId,
+          {
+            type: "BEGIN_BULK_DELETE_MODE",
+            payload: { lang: message.payload?.lang },
+          },
+          (response) => {
+            const error = chrome.runtime.lastError;
+            sendResponse(
+              error
+                ? {
+                    type: "START_BULK_DELETE_MODE_RESPONSE",
+                    payload: { success: false, error: error.message ?? "No supported page is active" },
+                  }
+                : response ?? {
+                    type: "START_BULK_DELETE_MODE_RESPONSE",
+                    payload: { success: false, error: "No supported page is active" },
+                  },
+            );
+          },
+        );
+      };
+
+      if (sender.tab?.id != null) {
+        forwardToTab(sender.tab.id);
+      } else {
+        chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+          const tabId = tabs[0]?.id;
+          if (tabId == null) {
+            sendResponse({
+              type: "START_BULK_DELETE_MODE_RESPONSE",
+              payload: { success: false, error: "No active tab" },
+            });
+            return;
+          }
+          forwardToTab(tabId);
+        });
+      }
+      return true;
+    }
+
     case "UPDATE_CONVERSATION_TITLE":
       handleUpdateConversationTitle(message as UpdateConversationTitleRequest)
         .then(sendResponse)
@@ -1061,7 +1104,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     case "SYNC_CHATGPT_HISTORY":
       handleSyncChatGPTHistory(
         message as SyncChatGPTHistoryRequest,
-        _sender.tab?.id,
+        sender.tab?.id,
       )
         .then(sendResponse)
         .catch((err) =>

@@ -1119,6 +1119,7 @@ function FloatingMemoryPanelInner() {
                     >
                       <SettingsView
                         onBack={() => setPanelView("menu")}
+                        onBulkDeleteStarted={closePanel}
                         width={panelWidth}
                       />
                     </div>

@@ -333,6 +333,21 @@ export interface ClearAllMemoriesResponse {
   payload: { success: boolean; error?: string }
 }
 
+export interface StartBulkDeleteModeRequest {
+  type: 'START_BULK_DELETE_MODE'
+  payload: { lang: string }
+}
+
+export interface BeginBulkDeleteModeRequest {
+  type: 'BEGIN_BULK_DELETE_MODE'
+  payload: { lang: string }
+}
+
+export interface StartBulkDeleteModeResponse {
+  type: 'START_BULK_DELETE_MODE_RESPONSE'
+  payload: { success: boolean; error?: string }
+}
+
 // ─── DOM_SYNC ─────────────────────────────────────────────────────────────────
 // Direction: Content Script → Background Service Worker
 // Triggered on page-load / SPA-navigation / settled DOM changes to sync
@@ -484,6 +499,9 @@ export type ExtensionMessage =
   | ClearErrorsResponse
   | ClearAllMemoriesRequest
   | ClearAllMemoriesResponse
+  | StartBulkDeleteModeRequest
+  | BeginBulkDeleteModeRequest
+  | StartBulkDeleteModeResponse
   | UpdateConversationTitleRequest
   | UpdateConversationTitleResponse
   | GetConversationTitlesRequest
@@ -532,6 +550,7 @@ export type ExtensionMessageResponse =
   | EmbedResponse
   | ClearErrorsResponse
   | ClearAllMemoriesResponse
+  | StartBulkDeleteModeResponse
   | UpdateConversationTitleResponse
   | GetConversationTitlesResponse
   | QueryMemorySessionsResponse
