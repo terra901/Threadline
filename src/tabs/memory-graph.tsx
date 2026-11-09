@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { LanguageProvider, useTranslation } from '../i18n/LanguageContext'
 import { ThemeProvider, useTheme } from '../i18n/ThemeContext'
 import type { AIProvider, AttachmentRecord, GraphMemoryRecord, MemorySessionSummary } from '../types/memory'
-import type { DeleteMemorySessionResponse, DownloadAttachmentResponse, PersistPendingSessionResponse, QueryMemorySessionsResponse, QuerySessionGraphResponse } from '../types/messages'
+import type { DeleteMemorySessionResponse, DownloadAttachmentResponse, HistorySyncProgress, PersistAllPendingResponse, PersistPendingSessionResponse, QueryMemorySessionsResponse, QuerySessionGraphResponse, SyncChatGPTHistoryResponse } from '../types/messages'
 import { CopyIcon, DownloadIcon, ListIcon, MoreHorizontalIcon, NetworkIcon, RefreshIcon, TrashIcon, UploadIcon } from '../ui/icons'
 import * as S from '../ui/styles'
 import { getThemeTokens } from '../ui/theme'
@@ -784,6 +786,28 @@ function CanvasViewportControls({
   )
 }
 
+/**
+ * Renders stored message content as formatted markdown (headings, lists,
+ * emphasis, code fences, tables, links) so assistant replies look like they
+ * do on the ChatGPT page instead of flattened plain text.
+ */
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <div className="markdownContent">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ node: _node, ...props }) => (
+            <a {...props} target="_blank" rel="noreferrer noopener" />
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
 function MessageBoard({
   onClose,
   notice,
@@ -843,7 +867,7 @@ function MessageBoard({
       </div>
 
       <div className="messageContent">
-        <p>{record.content}</p>
+        <MarkdownContent content={record.content} />
       </div>
     </aside>
   )
@@ -893,6 +917,9 @@ function MemoryGraphApp() {
   const [exportingSessionId, setExportingSessionId] = useState('')
   const [persistingSessionId, setPersistingSessionId] = useState('')
   const [deletingSessionId, setDeletingSessionId] = useState('')
+  const [savingAllPendingId, setSavingAllPendingId] = useState(false)
+  const [syncingHistory, setSyncingHistory] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number; currentTitle?: string } | null>(null)
   const [activeMenuSessionId, setActiveMenuSessionId] = useState('')
   const [activeMenuPosition, setActiveMenuPosition] = useState<{ top: number; right: number } | undefined>()
   const [activeAttachmentMenuRecordId, setActiveAttachmentMenuRecordId] = useState('')
@@ -1057,6 +1084,87 @@ function MemoryGraphApp() {
     void loadSessions()
     if (activeSessionId) void loadGraph(activeSessionId)
   }, [activeSessionId, loadGraph, loadSessions])
+
+  // ChatGPT backend-API history sync: progress broadcasts + auto-refresh.
+  useEffect(() => {
+    const listener = (message: unknown) => {
+      const progress = message as HistorySyncProgress
+      if (progress?.type !== 'HISTORY_SYNC_PROGRESS') return
+      const { done, total, error, currentTitle } = progress.payload ?? {}
+      if (error) {
+        setSyncingHistory(false)
+        setSyncProgress(null)
+        showNotice({ type: 'error', message: `ChatGPT 同步失败: ${error}` })
+        return
+      }
+      if (total > 0) {
+        setSyncingHistory(true)
+        setSyncProgress({ done, total, currentTitle })
+        if (done >= total) {
+          setSyncingHistory(false)
+          setSyncProgress(null)
+          showNotice({
+            type: 'success',
+            message: `✓ ChatGPT 历史同步完成 (${total} 个会话)`,
+          })
+          void loadSessions()
+          if (activeSessionId) void loadGraph(activeSessionId)
+        }
+      } else {
+        // total 0 → run finished with no conversations
+        setSyncingHistory(false)
+        setSyncProgress(null)
+      }
+    }
+    chrome.runtime.onMessage.addListener(listener)
+    return () => chrome.runtime.onMessage.removeListener(listener)
+  }, [activeSessionId, loadGraph, loadSessions, showNotice])
+
+  const handleSyncChatGPTHistory = useCallback(async () => {
+    if (syncingHistory) return
+    setSyncingHistory(true)
+    setSyncProgress(null)
+    try {
+      const response = await sendMessage<SyncChatGPTHistoryResponse>({
+        type: 'SYNC_CHATGPT_HISTORY',
+        payload: { scope: 'all', forcePersist: true },
+      })
+      if (!response?.payload?.success) {
+        setSyncingHistory(false)
+        showNotice({
+          type: 'error',
+          message: `ChatGPT 同步失败: ${response?.payload?.error ?? 'unknown'}`,
+        })
+      }
+      // On success, keep the syncing state until HISTORY_SYNC_PROGRESS finishes.
+    } catch (err) {
+      setSyncingHistory(false)
+      showNotice({ type: 'error', message: `ChatGPT 同步失败: ${String(err)}` })
+    }
+  }, [showNotice, syncingHistory])
+
+  const handleSaveAllPending = useCallback(async () => {
+    if (savingAllPendingId) return
+    setSavingAllPendingId(true)
+    try {
+      const response = await sendMessage<PersistAllPendingResponse>({
+        type: 'PERSIST_ALL_PENDING',
+      })
+      if (!response.payload.success) {
+        throw new Error(response.payload.error ?? 'Save failed')
+      }
+      showNotice({
+        type: 'success',
+        message: `已保存全部待定会话 (${response.payload.count} 条记录)`,
+      })
+      await loadSessions()
+      if (activeSessionId) void loadGraph(activeSessionId)
+    } catch (err) {
+      showNotice({ type: 'error', message: `保存失败: ${String(err)}` })
+    } finally {
+      setSavingAllPendingId(false)
+    }
+  }, [activeSessionId, loadGraph, loadSessions, savingAllPendingId, showNotice])
 
   const updateScale = useCallback((nextScale: number, anchor?: { x: number; y: number }) => {
     setViewport((current) => {
@@ -1381,7 +1489,32 @@ function MemoryGraphApp() {
         <ActionButton icon={<RefreshIcon />} onClick={handleRefresh}>
           Refresh
         </ActionButton>
+        <ActionButton
+          disabled={syncingHistory}
+          icon={<UploadIcon />}
+          onClick={() => void handleSyncChatGPTHistory()}
+          title="从 ChatGPT 网页加载全部历史会话（需要已登录的 chatgpt.com 标签页）"
+        >
+          {syncingHistory
+            ? syncProgress
+              ? `同步中 ${syncProgress.done}/${syncProgress.total}`
+              : '同步中…'
+            : '从 ChatGPT 加载全部历史'}
+        </ActionButton>
       </header>
+
+      {syncProgress && syncingHistory && syncProgress.total > 0 && (
+        <div className="syncProgressBar">
+          <div
+            className="syncProgressFill"
+            style={{ width: `${Math.min(100, (syncProgress.done / syncProgress.total) * 100)}%` }}
+          />
+          <span>
+            正在同步 {syncProgress.done}/{syncProgress.total}
+            {syncProgress.currentTitle ? ` — ${syncProgress.currentTitle}` : ''}
+          </span>
+        </div>
+      )}
 
       <main className={`layout${selectedRecord ? ' detailOpen' : ''}`}>
         <aside className="sidebar">
@@ -1402,6 +1535,14 @@ function MemoryGraphApp() {
               title="Export the selected session as JSON"
             >
               {exportingSessionId === activeSession?.sessionId ? 'Exporting...' : 'Export JSON'}
+            </ActionButton>
+            <ActionButton
+              disabled={savingAllPendingId}
+              icon={<UploadIcon />}
+              onClick={() => void handleSaveAllPending()}
+              title="保存所有手动模式下的待定会话"
+            >
+              {savingAllPendingId ? '保存中…' : '保存全部待定'}
             </ActionButton>
           </div>
 
@@ -2518,6 +2659,123 @@ html.threadlineGraphPanning .graphCanvas {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* ── Markdown rendering (ChatGPT-style formatted messages) ───────────────── */
+.markdownContent {
+  color: var(--aim-text);
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.markdownContent > :first-child {
+  margin-top: 0;
+}
+.markdownContent > :last-child {
+  margin-bottom: 0;
+}
+.markdownContent p {
+  margin: 0.5em 0;
+  white-space: pre-wrap;
+}
+.markdownContent h1,
+.markdownContent h2,
+.markdownContent h3,
+.markdownContent h4,
+.markdownContent h5,
+.markdownContent h6 {
+  margin: 1em 0 0.45em;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.markdownContent h1 { font-size: 1.35em; }
+.markdownContent h2 { font-size: 1.22em; }
+.markdownContent h3 { font-size: 1.1em; }
+.markdownContent h4,
+.markdownContent h5,
+.markdownContent h6 { font-size: 1em; }
+.markdownContent ul,
+.markdownContent ol {
+  margin: 0.5em 0;
+  padding-left: 1.6em;
+}
+.markdownContent li {
+  margin: 0.22em 0;
+}
+.markdownContent ul li {
+  list-style: disc;
+}
+.markdownContent ol li {
+  list-style: decimal;
+}
+.markdownContent blockquote {
+  margin: 0.6em 0;
+  padding: 0.2em 0.9em;
+  border-left: 3px solid var(--aim-border);
+  color: var(--aim-muted);
+}
+.markdownContent code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  background: var(--aim-input-bg);
+  border: 1px solid var(--aim-border-light);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+}
+.markdownContent pre {
+  margin: 0.7em 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid var(--aim-border);
+  background: var(--aim-input-bg);
+}
+.markdownContent pre code {
+  display: block;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre;
+}
+.markdownContent table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.7em 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.markdownContent th,
+.markdownContent td {
+  border: 1px solid var(--aim-border);
+  padding: 6px 10px;
+  text-align: left;
+}
+.markdownContent th {
+  background: var(--aim-input-bg);
+  font-weight: 650;
+}
+.markdownContent tr:nth-child(2n) td {
+  background: var(--aim-bg-secondary);
+}
+.markdownContent hr {
+  border: none;
+  border-top: 1px solid var(--aim-border);
+  margin: 1em 0;
+}
+.markdownContent a {
+  color: var(--aim-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdownContent strong {
+  font-weight: 700;
+}
+.markdownContent img {
+  max-width: 100%;
+  border-radius: 8px;
+}
 .emptyState,
 .errorBox {
   border: 1px solid var(--aim-border);
@@ -2526,6 +2784,28 @@ html.threadlineGraphPanning .graphCanvas {
   padding: 14px;
   color: var(--aim-muted);
   font-size: 13px;
+}
+.syncProgressBar {
+  position: relative;
+  margin: 0 18px 4px;
+  padding: 8px 12px 8px 14px;
+  border: 1px solid var(--aim-border);
+  border-radius: 12px;
+  background: var(--aim-btn-bg);
+  overflow: hidden;
+  color: var(--aim-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.syncProgressFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--aim-accent);
+  opacity: 0.14;
+  transition: width 0.4s ease;
+}
+.syncProgressBar span {
+  position: relative;
 }
 .emptyState.compact {
   margin: 12px 16px;

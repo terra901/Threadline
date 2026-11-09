@@ -1,0 +1,17 @@
+diff --git a/lib/index.js b/lib/index.js
+index 68db7f9f1f201104cd9970078a524473cfc24acf..e29e94083137762326424fe26673a51975faaca1 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -9,9 +9,9 @@
+  */
+ 
+ import {VFileMessage} from 'vfile-message'
+-import {minpath} from '#minpath'
+-import {minproc} from '#minproc'
+-import {urlToPath, isUrl} from '#minurl'
++import {minpath} from './minpath.browser.js'
++import {minproc} from './minproc.browser.js'
++import {urlToPath, isUrl} from './minurl.browser.js'
+ 
+ /**
+  * Order of setting (least specific to most), we need this because otherwise

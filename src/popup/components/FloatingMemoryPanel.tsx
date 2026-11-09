@@ -14,7 +14,7 @@ import { getThemeTokens } from "../../ui/theme";
 import { getCaptureModeTone } from "../../ui/captureModeTone";
 import type { LangCode } from "../../i18n/translations";
 import { inferSessionIdFromUrl } from "../../utils/session-url";
-import type { GetCaptureModeResponse, StatusUpdate } from "../../types/messages";
+import type { GetCaptureModeResponse, HistorySyncProgress, StatusUpdate } from "../../types/messages";
 import { APP_DISPLAY_NAME } from "../../constants/branding";
 import {
   safeRuntimeGetURL,
@@ -200,6 +200,12 @@ function FloatingMemoryPanelInner() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelView, setPanelView] = useState<PanelView>("menu");
   const [captureMode, setCaptureMode] = useState<CaptureMode>("auto");
+  const [syncProgress, setSyncProgress] = useState<{
+    done: number;
+    total: number;
+    currentTitle?: string;
+  } | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const captureModeTone = getCaptureModeTone(captureMode, tk);
   const persistedRef = useRef(false);
   const [logoHovered, setLogoHovered] = useState(false);
@@ -256,6 +262,67 @@ function FloatingMemoryPanelInner() {
       removeMessageListener();
       removeStorageListener();
     };
+  }, []);
+
+  // ChatGPT history sync progress
+  useEffect(() => {
+    const progressHandler = (message: unknown) => {
+      const update = message as HistorySyncProgress;
+      if (update?.type !== "HISTORY_SYNC_PROGRESS") return;
+      const { done = 0, total = 0, error, currentTitle } = update.payload ?? {};
+      if (error) {
+        setSyncError(error);
+        setSyncProgress(null);
+        return;
+      }
+      setSyncError(null);
+      if (total > 0) {
+        setSyncProgress({ done, total, currentTitle });
+        if (done >= total) {
+          window.setTimeout(() => setSyncProgress(null), 3000);
+        }
+      } else {
+        setSyncProgress(null);
+      }
+    };
+    const removeProgressListener = safeRuntimeOnMessage(progressHandler);
+    return () => removeProgressListener();
+  }, []);
+
+  const handleSaveCurrentConversation = useCallback(() => {
+    const sessionId =
+      typeof window !== "undefined"
+        ? inferSessionIdFromUrl(window.location.href)
+        : undefined;
+    safeRuntimeSendMessage({
+      type: "SYNC_CHATGPT_HISTORY",
+      payload: { scope: "current", forcePersist: true, sessionId },
+    }, (resp, error) => {
+      if (error) {
+        setSyncError(error);
+        return;
+      }
+      const result = resp as { payload?: { success?: boolean; error?: string } } | undefined;
+      if (result?.payload?.success === false) {
+        setSyncError(result.payload.error ?? "sync failed");
+      }
+    });
+  }, []);
+
+  const handleSyncChatGPTHistory = useCallback(() => {
+    safeRuntimeSendMessage({
+      type: "SYNC_CHATGPT_HISTORY",
+      payload: { scope: "all", forcePersist: true },
+    }, (resp, error) => {
+      if (error) {
+        setSyncError(error);
+        return;
+      }
+      const result = resp as { payload?: { success?: boolean; error?: string } } | undefined;
+      if (result?.payload?.success === false) {
+        setSyncError(result.payload.error ?? "sync failed");
+      }
+    });
   }, []);
 
   const openGraph = useCallback(() => {
@@ -961,6 +1028,45 @@ function FloatingMemoryPanelInner() {
                           <span style={S.iconWrap}><FolderIcon /></span>
                           <span>{t.promptsFolder}</span>
                         </button>
+                        <button
+                          type="button"
+                          disabled={!!syncProgress}
+                          style={{ ...S.menuBtn, backgroundColor: tk.btnBg, borderColor: tk.border, color: tk.text, opacity: syncProgress ? 0.6 : 1 }}
+                          onClick={handleSaveCurrentConversation}
+                          title={t.saveCurrentConversationDesc}
+                        >
+                          <span style={S.iconWrap}><NetworkIcon /></span>
+                          <span>{t.saveCurrentConversation}</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!!syncProgress}
+                          style={{ ...S.menuBtn, backgroundColor: tk.btnBg, borderColor: tk.border, color: tk.text, opacity: syncProgress ? 0.6 : 1 }}
+                          onClick={handleSyncChatGPTHistory}
+                          title={t.syncChatGPTHistoryDesc}
+                        >
+                          <span style={S.iconWrap}><NetworkIcon /></span>
+                          <span>
+                            {syncProgress
+                              ? `${t.syncChatGPTHistoryRunning} ${syncProgress.done}/${syncProgress.total}`
+                              : t.syncChatGPTHistory}
+                          </span>
+                        </button>
+                        {syncError && (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              lineHeight: 1.4,
+                              color: tk.errorText,
+                              backgroundColor: tk.errorBg,
+                              border: `1px solid ${tk.errorText}`,
+                              borderRadius: 10,
+                              padding: "7px 10px",
+                            }}
+                          >
+                            {t.syncChatGPTHistoryFailed(syncError)}
+                          </div>
+                        )}
                         <div style={{ ...S.divider, backgroundColor: tk.separator }} />
                         <button
                           type="button"
@@ -1013,6 +1119,7 @@ function FloatingMemoryPanelInner() {
                     >
                       <SettingsView
                         onBack={() => setPanelView("menu")}
+                        onBulkDeleteStarted={closePanel}
                         width={panelWidth}
                       />
                     </div>

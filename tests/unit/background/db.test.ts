@@ -215,3 +215,51 @@ describe('MemoryDatabase graph queries', () => {
     })
   })
 })
+
+describe('MemoryDatabase.replaceDomMessageContent — truncated-DOM regression', () => {
+  let db: MemoryDatabase
+
+  beforeEach(async () => {
+    db = new MemoryDatabase()
+    await db.open()
+  })
+
+  afterEach(async () => {
+    await db.delete()
+  })
+
+  it('updates a short stored message when a fuller scan arrives', async () => {
+    await db.addRecord({ ...makeRecord(0), id: 'dom-x', content: 'partial' })
+    const result = await db.replaceDomMessageContent('dom-x', 'partial but complete')
+    expect(result.changed).toBe(true)
+    const stored = await db.memories.get('dom-x')
+    expect(stored?.content).toBe('partial but complete')
+    expect(stored?.hasEmbedding).toBe(0)
+  })
+
+  it('does not regress to a shorter prefix of the stored text (mid-stream scan)', async () => {
+    await db.addRecord({ ...makeRecord(0), id: 'dom-y', content: 'the full complete answer' })
+    const result = await db.replaceDomMessageContent('dom-y', 'the full')
+    expect(result.changed).toBe(false)
+    const stored = await db.memories.get('dom-y')
+    expect(stored?.content).toBe('the full complete answer')
+  })
+
+  it('replaces chunk records for long messages and returns their ids', async () => {
+    const long = 'A'.repeat(600)
+    for (const [i, chunk] of ['A'.repeat(500), 'A'.repeat(100)].entries()) {
+      await db.addRecord({
+        ...makeRecord(0),
+        id: `dom-z-c${i}`,
+        parentId: 'dom-z',
+        chunkIndex: i,
+        content: chunk,
+      })
+    }
+    const result = await db.replaceDomMessageContent('dom-z', 'B'.repeat(600))
+    expect(result.changed).toBe(true)
+    expect(result.removedRecords.map((r) => r.id).sort()).toEqual(['dom-z-c0', 'dom-z-c1'])
+    const chunks = await db.memories.where('parentId').equals('dom-z').toArray()
+    expect(chunks).toHaveLength(0)
+  })
+})

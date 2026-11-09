@@ -11,6 +11,7 @@
  */
 
 import type { PlasmoCSConfig } from "plasmo";
+import TurndownService from "turndown";
 import type {
   DomMessage,
   DomSyncResponse,
@@ -29,6 +30,11 @@ import {
   consumePendingUploadAttachments,
   startUploadAttachmentCapture,
 } from "../utils/upload-attachment-capture";
+import {
+  parseChatGPTConversationDetail,
+  type ChatGPTConversationDetail,
+} from "../utils/chatgpt-history";
+import type { MemoryRecord } from "../types/memory";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://chatgpt.com/*"],
@@ -271,9 +277,81 @@ function extractBubbleText(bubbleEl: Element): string {
   clone
     .querySelectorAll('pre [class*="flex items-center"]')
     .forEach((el) => el.remove());
+  // Some locales/versions render the code header without the flex class —
+  // remove any <pre>-child div that holds a button but no code.
+  clone.querySelectorAll("pre > div").forEach((div) => {
+    if (div.querySelector("button") && !div.querySelector("code")) div.remove();
+  });
+
+  // Prefer converting the rendered HTML back to Markdown so headings, lists,
+  // emphasis, code fences and tables keep their structure in the memory graph.
+  // Falls back to innerText when conversion yields nothing usable.
+  const markdown = (() => {
+    try {
+      const html = clone.innerHTML;
+      if (!html) return "";
+      return getTurndownService().turndown(html).trim();
+    } catch {
+      return "";
+    }
+  })();
+  if (markdown) return markdown;
+
   return (
     (clone as HTMLElement).innerText?.trim() ?? clone.textContent?.trim() ?? ""
   );
+}
+
+// ─── HTML → Markdown (Turndown) ────────────────────────────────────────────────
+
+let _turndownService: TurndownService | null = null;
+
+function getTurndownService(): TurndownService {
+  if (_turndownService) return _turndownService;
+  const td = new TurndownService({
+    codeBlockStyle: "fenced",
+    headingStyle: "atx",
+    bulletListMarker: "-",
+    emDelimiter: "*",
+    strongDelimiter: "**",
+    hr: "---",
+  });
+  // Turndown flattens tables to plain text; emit GFM tables instead so the
+  // markdown renderer can reproduce them exactly like the ChatGPT page.
+  td.addRule("gfmTable", {
+    filter: "table",
+    replacement: (_content, node) =>
+      tableToMarkdown(node as HTMLTableElement),
+  });
+  _turndownService = td;
+  return td;
+}
+
+function tableCellText(cell: Element): string {
+  return (
+    (cell as HTMLElement).innerText?.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim() ??
+    ""
+  );
+}
+
+function tableToMarkdown(table: HTMLTableElement): string {
+  const rows = Array.from(table.querySelectorAll("tr"));
+  if (rows.length === 0) return "";
+  const headerCells = Array.from(rows[0].querySelectorAll("th, td")).map(tableCellText);
+  const bodyRows = rows.slice(1).map((row) =>
+    Array.from(row.querySelectorAll("td, th")).map(tableCellText),
+  );
+  const colCount = Math.max(headerCells.length, ...bodyRows.map((r) => r.length));
+  const pad = (cells: string[]): string[] => {
+    const out = [...cells];
+    while (out.length < colCount) out.push("");
+    return out;
+  };
+  const lines: string[] = [];
+  lines.push(`| ${pad(headerCells).join(" | ")} |`);
+  lines.push(`| ${pad(headerCells.map(() => "---")).join(" | ")} |`);
+  for (const row of bodyRows) lines.push(`| ${pad(row).join(" | ")} |`);
+  return lines.join("\n");
 }
 
 function roundIndexFromTurn(turnIndex: number): number {
@@ -383,6 +461,255 @@ function sendDomSync(messages: DomMessage[]): void {
   );
 }
 
+// ─── ChatGPT backend-API history sync ─────────────────────────────────────────
+// DOM scans can only see what the page currently renders, and ChatGPT
+// virtualizes long threads (early rounds are simply not in the DOM until you
+// scroll up). The authoritative source is the backend API:
+//   GET /backend-api/conversation/<id>  → full message mapping
+//   GET /backend-api/conversations      → sidebar conversation list
+// We fetch those from the page context (session cookies are attached) and
+// stream parsed records to the background, which dedups + persists them.
+
+const HISTORY_LIST_LIMIT = 100;
+const HISTORY_CONCURRENCY_CAP = 400; // safety cap per full-sync run
+const HISTORY_CURRENT_THROTTLE_MS = 60_000;
+
+let _historySyncActive = false;
+const _lastCurrentSyncBySession = new Map<string, number>();
+
+interface ChatGPTHistorySyncOptions {
+  scope: "current" | "all";
+  forcePersist?: boolean;
+  sessionId?: string;
+}
+
+// ChatGPT's backend API now requires an `Authorization: Bearer <jwt>` header.
+// The frontend obtains the JWT from the NextAuth session endpoint; we do the
+// same (page context → session cookies attached) and cache it briefly.
+let _accessTokenCache: { token: string; expiresAt: number } | null = null;
+
+async function getChatGPTAccessToken(): Promise<string> {
+  const cached = _accessTokenCache;
+  if (cached && Date.now() < cached.expiresAt) return cached.token;
+  const response = await fetch(`${window.location.origin}/api/auth/session`, {
+    credentials: "include",
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`ChatGPT auth ${response.status}`);
+  }
+  const session = (await response.json()) as { accessToken?: string };
+  if (typeof session.accessToken !== "string" || !session.accessToken) {
+    throw new Error("NO_ACCESS_TOKEN");
+  }
+  // Cache for 8 minutes (JWT lifetime is ~1 day; refresh eagerly is fine)
+  _accessTokenCache = { token: session.accessToken, expiresAt: Date.now() + 8 * 60_000 };
+  return session.accessToken;
+}
+
+async function historyFetchJson<T>(path: string): Promise<T> {
+  const token = await getChatGPTAccessToken();
+  const response = await fetch(`${window.location.origin}${path}`, {
+    credentials: "include",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`ChatGPT API ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
+function conversationIdFromUrlOrSession(sessionId?: string): string | null {
+  if (sessionId && sessionId.startsWith("openai:")) {
+    const id = sessionId.slice("openai:".length).trim();
+    if (id) return id;
+  }
+  const m = window.location.pathname.match(/\/c\/([0-9a-f-]{36})/i);
+  return m ? m[1] : null;
+}
+
+async function fetchConversationDetail(
+  conversationId: string,
+): Promise<{ records: MemoryRecord[]; title?: string; sessionId: string } | null> {
+  const conv = await historyFetchJson<ChatGPTConversationDetail>(
+    `/backend-api/conversation/${conversationId}`,
+  );
+  const records = parseChatGPTConversationDetail(
+    conv,
+    window.location.href,
+    conversationId,
+  );
+  if (!records.length) return null;
+  return {
+    records,
+    title:
+      typeof conv.title === "string" && conv.title.trim()
+        ? conv.title.trim()
+        : undefined,
+    sessionId: `openai:${conversationId}`,
+  };
+}
+
+function sendConversationToBackground(
+  payload: {
+    sessionId: string;
+    title?: string;
+    records: MemoryRecord[];
+    forcePersist?: boolean;
+    total?: number;
+  },
+): void {
+  safeRuntimeSendMessage({ type: "CHATGPT_HISTORY_CONVERSATION", payload }, () => {
+    /* progress arrives via HISTORY_SYNC_PROGRESS broadcasts */
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function syncCurrentConversationFromApi(
+  options: ChatGPTHistorySyncOptions,
+): Promise<{ success: boolean; error?: string; total: number }> {
+  const conversationId = conversationIdFromUrlOrSession(options.sessionId);
+  if (!conversationId) {
+    return { success: false, error: "NOT_ON_CONVERSATION_PAGE", total: 0 };
+  }
+  try {
+    const conv = await fetchConversationDetail(conversationId);
+    if (conv) {
+      sendConversationToBackground({
+        sessionId: conv.sessionId,
+        title: conv.title,
+        records: conv.records,
+        forcePersist: options.forcePersist,
+        total: 1,
+      });
+    }
+    return { success: true, total: conv ? 1 : 0 };
+  } catch (err) {
+    console.warn("[Threadline] ChatGPT history sync failed:", err);
+    return { success: false, error: String(err), total: 0 };
+  }
+}
+
+async function syncAllConversationsFromApi(
+  options: ChatGPTHistorySyncOptions,
+): Promise<{ success: boolean; error?: string; total: number }> {
+  try {
+    // 1. Walk the conversation list pages.
+    const items: Array<{ id: string; title?: string }> = [];
+    const seen = new Set<string>();
+    let offset = 0;
+    while (items.length < HISTORY_CONCURRENCY_CAP) {
+      const list = await historyFetchJson<{
+        items?: Array<{ id?: string; title?: string | null }>;
+        total?: number;
+      }>(
+        `/backend-api/conversations?offset=${offset}&limit=${HISTORY_LIST_LIMIT}&order=updated&is_archived=false&is_starred=false`,
+      );
+      const batch = (list.items ?? []).filter(
+        (item) => typeof item.id === "string" && item.id && !seen.has(item.id),
+      );
+      for (const item of batch) {
+        seen.add(item.id as string);
+        items.push({
+          id: item.id as string,
+          title: typeof item.title === "string" ? item.title : undefined,
+        });
+      }
+      const total = typeof list.total === "number" ? list.total : items.length;
+      if (batch.length === 0 || items.length >= total) break;
+      if (batch.length < HISTORY_LIST_LIMIT) break;
+      offset += HISTORY_LIST_LIMIT;
+    }
+
+    if (items.length === 0) {
+      return { success: true, total: 0 };
+    }
+
+    // 2. Fetch every conversation (sequentially, politely) and stream each to
+    //    the background as soon as it is parsed.
+    const failed: string[] = [];
+    for (const item of items) {
+      try {
+        const conv = await fetchConversationDetail(item.id);
+        if (conv) {
+          sendConversationToBackground({
+            sessionId: conv.sessionId,
+            title: conv.title ?? item.title,
+            records: conv.records,
+            forcePersist: options.forcePersist,
+            total: items.length,
+          });
+        }
+      } catch (err) {
+        failed.push(item.id);
+        console.warn("[Threadline] History sync failed for", item.id, err);
+      }
+      await sleep(120);
+    }
+
+    if (failed.length > 0) {
+      console.warn(`[Threadline] ${failed.length}/${items.length} conversations failed`);
+    }
+    return { success: true, total: items.length };
+  } catch (err) {
+    console.warn("[Threadline] ChatGPT full history sync failed:", err);
+    return { success: false, error: String(err), total: 0 };
+  }
+}
+
+async function handleFetchChatGPTHistory(
+  options: ChatGPTHistorySyncOptions,
+  sendResponse?: (response: { success: boolean; error?: string }) => void,
+): Promise<void> {
+  if (_historySyncActive) {
+    sendResponse?.({ success: false, error: "ALREADY_SYNCING" });
+    return;
+  }
+  _historySyncActive = true;
+  // Ack immediately — the actual work continues asynchronously and reports
+  // via CHATGPT_HISTORY_CONVERSATION / CHATGPT_HISTORY_DONE messages.
+  sendResponse?.({ success: true });
+  let total = 0;
+  try {
+    if (options.scope === "all") {
+      total = (await syncAllConversationsFromApi(options)).total;
+    } else {
+      total = (await syncCurrentConversationFromApi(options)).total;
+    }
+  } finally {
+    _historySyncActive = false;
+    if (options.scope === "current") {
+      const conversationId = conversationIdFromUrlOrSession(options.sessionId);
+      if (conversationId) {
+        _lastCurrentSyncBySession.set(conversationId, Date.now());
+      }
+    }
+    // Tell the background the run finished so progress UI can reset.
+    safeRuntimeSendMessage(
+      {
+        type: "CHATGPT_HISTORY_DONE",
+        payload: { scope: options.scope, total },
+      },
+      () => undefined,
+    );
+  }
+}
+
+/** Throttled auto-sync: on opening a conversation, backfill it from the API. */
+function maybeSyncCurrentFromApi(): void {
+  const conversationId = conversationIdFromUrlOrSession(undefined);
+  if (!conversationId) return;
+  const last = _lastCurrentSyncBySession.get(conversationId) ?? 0;
+  if (Date.now() - last < HISTORY_CURRENT_THROTTLE_MS) return;
+  void handleFetchChatGPTHistory({ scope: "current" });
+}
+
 // ─── Sync Trigger Logic ───────────────────────────────────────────────────────
 // Re-scans are signature-deduped so DOM changes can safely trigger sync without
 // re-inserting the same messages. This is what lets already-open conversations
@@ -457,16 +784,33 @@ function waitForMessageNodesAndScan(sessionId: string): void {
 /**
  * Run a DOM scan for the current conversation. Safe to call frequently because
  * scheduleDomSync debounces and scanAndSendIfChanged deduplicates payloads.
+ * Also backfills the conversation from the ChatGPT backend API (throttled),
+ * which is the only way to obtain rounds the page has virtualized away.
  */
 function maybeScanCurrentConversation(): void {
   const sessionId = extractSessionId();
   if (!sessionId) return; // Not on a /c/<uuid> page
 
   waitForMessageNodesAndScan(sessionId);
+  maybeSyncCurrentFromApi();
 }
 
 safeRuntimeOnMessage((message, _sender, sendResponse) => {
-  if (message?.type !== "REQUEST_DOM_SYNC_NOW") return false;
+  if (message?.type !== "REQUEST_DOM_SYNC_NOW") {
+    if (message?.type === "FETCH_CHATGPT_HISTORY") {
+      const payload = message.payload ?? {};
+      void handleFetchChatGPTHistory(
+        {
+          scope: payload.scope === "all" ? "all" : "current",
+          forcePersist: payload.forcePersist === true,
+          sessionId: typeof payload.sessionId === "string" ? payload.sessionId : undefined,
+        },
+        sendResponse,
+      );
+      return true; // async response
+    }
+    return false;
+  }
   const sessionId = extractSessionId();
   if (sessionId) {
     void scanDomMessages(sessionId).then(sendDomSync);
@@ -520,6 +864,22 @@ function scheduleInjection(): void {
 
 const observer = new MutationObserver(scheduleInjection);
 
+// Periodic DOM re-scan safety net. Virtualized conversations render lazily
+// (scroll-triggered) and rapid streaming can swallow mutation batches; a
+// cheap signature-deduped re-scan every few seconds guarantees newly
+// rendered messages eventually reach the background even if an observer
+// callback was missed.
+let _rescanInterval: number | undefined;
+function startPeriodicRescan(): void {
+  if (_rescanInterval !== undefined) return;
+  _rescanInterval = window.setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    const sessionId = extractSessionId();
+    if (!sessionId) return;
+    void scanAndSendIfChanged(sessionId);
+  }, 10_000);
+}
+
 function start(): void {
   startUploadAttachmentCapture();
   initRecallVisibility(() => tryInjectButton());
@@ -528,6 +888,7 @@ function start(): void {
 
   // Scan on initial page load (covers hard refresh and direct link navigation)
   maybeScanCurrentConversation();
+  startPeriodicRescan();
 
   // Onboarding Step 3: highlight Recall button if active
   watchOnboardingStep3(BUTTON_ID);

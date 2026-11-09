@@ -1076,7 +1076,45 @@ export function mainWorldInterceptor(): void {
       let conversationId = "";
       let model: string | undefined;
       let assistantMessageId: string | undefined;
-      const assistantChunks: string[] = [];
+      // Per-part streamed text (key = parts array index). `append` accumulates,
+      // `replace`/`add` overwrite — a final full-text replace therefore yields
+      // exactly the complete reply, never a duplicate.
+      const partTexts = new Map<string, string>();
+      const partOrder: string[] = [];
+      // Fallback text collected from `add` events that carry fully-formed
+      // content arrays (used only when no parts ops arrived at all).
+      const addPartsFallback: string[] = [];
+
+      const applyToPart = (path: string, op: string, value: unknown): void => {
+        let key: string | null = null;
+        const m = path.match(/^\/message\/content\/parts\/(\d+)$/);
+        if (m) key = m[1];
+        else if (path === "/message/content") key = "0";
+
+        const isPartsObject =
+          !!value &&
+          typeof value === "object" &&
+          Array.isArray((value as Record<string, unknown>)["parts"]);
+        if (key === null) return;
+        if (typeof value !== "string" && !isPartsObject) return;
+
+        let text = "";
+        if (typeof value === "string") {
+          text = value;
+        } else {
+          text = ((value as Record<string, unknown>)["parts"] as unknown[])
+            .filter((p): p is string => typeof p === "string")
+            .join("");
+        }
+
+        if (op === "append") {
+          partTexts.set(key, (partTexts.get(key) ?? "") + text);
+        } else {
+          // replace / add → the part is now exactly this text
+          partTexts.set(key, text);
+        }
+        if (!partOrder.includes(key)) partOrder.push(key);
+      };
 
       try {
         while (true) {
@@ -1126,11 +1164,20 @@ export function mainWorldInterceptor(): void {
                       assistantMessageId = msgId.trim();
                     }
                   }
+                  // Some payloads ship the full content array on the `add` event
+                  // (no subsequent patch events). Keep it as a fallback.
+                  const parts = (msg?.content as
+                    | Record<string, unknown>
+                    | undefined)?.["parts"];
+                  if (Array.isArray(parts)) {
+                    for (const part of parts) {
+                      if (typeof part === "string" && part.trim()) {
+                        addPartsFallback.push(part);
+                      }
+                    }
+                  }
                 }
-                // Only use one path: if v is an array it's a patch operation (containing
-                // nested append ops); if v is a plain string it's a direct top-level append.
-                // These two formats are mutually exclusive — never let both paths run for
-                // the same event, which would duplicate the same text chunk.
+
                 if (
                   Array.isArray(parsed["v"]) &&
                   (parsed["o"] === "patch" || parsed["o"] === undefined)
@@ -1139,19 +1186,39 @@ export function mainWorldInterceptor(): void {
                     string,
                     unknown
                   >[]) {
+                    const op = patch["o"];
+                    const path = patch["p"];
                     if (
-                      patch["o"] === "append" &&
-                      patch["p"] === "/message/content/parts/0" &&
-                      typeof patch["v"] === "string"
+                      (op === "append" || op === "replace" || op === "add") &&
+                      typeof path === "string" &&
+                      (path === "/message/content" ||
+                        path.startsWith("/message/content/parts/"))
                     ) {
-                      assistantChunks.push(patch["v"]);
+                      applyToPart(path, op, patch["v"]);
                     }
                   }
                 } else if (
-                  parsed["o"] === "append" &&
+                  (parsed["o"] === "append" ||
+                    parsed["o"] === "replace" ||
+                    parsed["o"] === "add") &&
                   typeof parsed["v"] === "string"
                 ) {
-                  assistantChunks.push(parsed["v"]);
+                  applyToPart("/message/content/parts/0", parsed["o"], parsed["v"]);
+                } else if (
+                  parsed["o"] === "replace" &&
+                  parsed["v"] &&
+                  typeof parsed["v"] === "object" &&
+                  !Array.isArray(parsed["v"])
+                ) {
+                  // { parts: [...] } whole-content replace
+                  const parts = (parsed["v"] as Record<string, unknown>)["parts"];
+                  if (Array.isArray(parts)) {
+                    applyToPart(
+                      "/message/content/parts/0",
+                      "replace",
+                      (parts as unknown[]).join(""),
+                    );
+                  }
                 }
               }
             } catch {
@@ -1163,7 +1230,6 @@ export function mainWorldInterceptor(): void {
         isPartialRef.value = true;
       }
 
-      const assistantText = assistantChunks.join("");
       // For new chats: send deferred user message first with conversationId from stream
       if (pendingUserPayload && conversationId) {
         sendCapture(
@@ -1181,16 +1247,29 @@ export function mainWorldInterceptor(): void {
           timestamp,
         );
       }
-      // Only store the assistant reply when the stream completed cleanly (not cut off).
-      // A partial/cut-off reply would be stored as incomplete content, and if ChatGPT
-      // retries the full stream, the complete version would be stored again as a duplicate.
-      if (assistantText && !isPartialRef.value) {
+
+      // The visible answer is parts index 0 (other parts hold reasoning/tool
+      // traces). Fall back to add-event parts when no parts ops were seen.
+      let assistantText = partTexts.get("0") ?? "";
+      if (!assistantText && partOrder.length > 0) {
+        assistantText = partOrder
+          .map((key) => partTexts.get(key) ?? "")
+          .join("");
+      }
+      if (!assistantText && addPartsFallback.length > 0) {
+        assistantText = addPartsFallback.join("");
+      }
+
+      // Never drop a reply outright: if the stream was cut off we still store
+      // what we have (isPartial: true). A later complete stream for the same
+      // messageId replaces it via the upsert path in handleCaptureMessage.
+      if (assistantText) {
         const assistantPayload: Record<string, unknown> = {
           role: "assistant",
           content: assistantText,
           conversationId: conversationId || "unknown",
           model,
-          isPartial: false,
+          isPartial: isPartialRef.value,
         };
         if (assistantMessageId)
           assistantPayload["messageId"] = assistantMessageId;

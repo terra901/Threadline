@@ -3,6 +3,7 @@ import {
   generateRecordId,
   generateSessionId,
   normalizeContent,
+  sanitizeContent,
   type IAdapter,
 } from './base'
 
@@ -61,7 +62,7 @@ export class PerplexityAdapter implements IAdapter {
     const record: MemoryRecord = {
       id: messageId ? `perplexity-${messageId}` : generateRecordId(),
       role: role === 'user' ? 'user' : 'assistant',
-      content: normalizeContent(content),
+      content: sanitizeContent(content),
       provider: 'perplexity',
       sessionId: generateSessionId('perplexity', conversationId),
       originalMessageId: messageId,
@@ -115,7 +116,7 @@ export class PerplexityAdapter implements IAdapter {
         records.push({
           id: frontendUuid ? `perplexity-${frontendUuid}` : generateRecordId(),
           role: 'user',
-          content: normalizeContent(queryStr),
+          content: sanitizeContent(queryStr),
           provider: 'perplexity',
           sessionId,
           model,
@@ -133,7 +134,7 @@ export class PerplexityAdapter implements IAdapter {
         records.push({
           id: backendUuid ? `perplexity-${backendUuid}` : generateRecordId(),
           role: 'assistant',
-          content: normalizeContent(assistantText),
+          content: sanitizeContent(assistantText),
           provider: 'perplexity',
           sessionId,
           model,

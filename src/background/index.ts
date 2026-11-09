@@ -52,7 +52,7 @@ import type {
   OpenMemoryGraphResponse,
 } from "../types/messages";
 import { handleSearchMemories, hydrateSearchIndex, miniSearch } from "./search";
-import type { MemoryRecord } from "../types/memory";
+import type { MemoryRecord, MemorySessionSummary } from "../types/memory";
 import {
   FAVORITE_PROMPTS_KEY,
   FOLDERS_STORAGE_KEY,
@@ -71,9 +71,18 @@ import {
   deletePendingSession,
   getCaptureMode,
   getPendingSessionGraph,
+  listPendingSessionIds,
   listPendingSessions,
   persistPendingSession,
 } from "./pendingSessions";
+import { persistChatGPTConversation, persistRecordWithChunks } from "./historySync";
+import type {
+  ChatGPTHistoryConversation,
+  FetchChatGPTHistory,
+  PersistAllPendingResponse,
+  SyncChatGPTHistoryRequest,
+  SyncChatGPTHistoryResponse,
+} from "../types/messages";
 import { CAPTURE_MODE_STORAGE_KEY, PENDING_MEMORY_SESSIONS_STORAGE_KEY, isCaptureMode } from "../constants/capture";
 import { MEMORY_EXPORT_APP_NAME } from "../constants/branding";
 import { DEFAULT_ATTACHMENT_SAVE_MODE, normalizeAttachmentSaveMode } from "../constants/attachments";
@@ -180,18 +189,12 @@ async function handleCaptureMessage(
 
   const ids: string[] = [];
   for (const record of records) {
-    for (const chunk of expandToChunks(record)) {
-      const id = await safeAddRecord(chunk);
-      if (id) {
-        ids.push(id);
-        // Keep MiniSearch in sync with Dexie
-        try {
-          miniSearch.add(chunk);
-        } catch {
-          /* duplicate id — already indexed */
-        }
-        queueEmbedding(chunk);
-      }
+    // persistRecordWithChunks upserts records that already exist (e.g. a
+    // partial assistant reply captured earlier) instead of silently dropping
+    // them on a ConstraintError — this is what prevents "swallowed" answers.
+    const result = await persistRecordWithChunks(record);
+    if (result !== "skipped") {
+      ids.push(record.id);
     }
   }
 
@@ -259,12 +262,19 @@ async function handleQueryMemorySessions(
   try {
     const { sessions: persistedSessions } = await db.querySessions(message.payload);
     const pendingSessions = await listPendingSessions(message.payload);
-    const merged = [...pendingSessions, ...persistedSessions]
+    // Deduplicate: a session can exist both in the pending cache and in
+    // IndexedDB (e.g. user switched modes mid-session) — persisted wins.
+    const byId = new Map<string, MemorySessionSummary>();
+    for (const session of persistedSessions) byId.set(session.sessionId, session);
+    for (const session of pendingSessions) {
+      if (!byId.has(session.sessionId)) byId.set(session.sessionId, session);
+    }
+    const merged = [...byId.values()]
       .sort((a, b) => b.lastTimestamp - a.lastTimestamp)
       .slice(message.payload?.offset ?? 0, (message.payload?.offset ?? 0) + (message.payload?.limit ?? 200));
     return {
       type: "QUERY_MEMORY_SESSIONS_RESPONSE",
-      payload: { sessions: merged, total: pendingSessions.length + persistedSessions.length },
+      payload: { sessions: merged, total: merged.length },
     };
   } catch (err) {
     return {
@@ -308,6 +318,210 @@ async function handlePersistPendingSession(
   } catch (err) {
     return {
       type: "PERSIST_PENDING_SESSION_RESPONSE",
+      payload: { success: false, count: 0, error: String(err) },
+    };
+  }
+}
+
+// ─── ChatGPT backend-API history sync ─────────────────────────────────────────
+// UI (panel / graph / popup) → background → ChatGPT content script (page-context
+// fetch) → background (persist + progress broadcasts).
+
+const CHATGPT_TAB_URLS = [
+  "https://chatgpt.com/*",
+  "https://chat.openai.com/*",
+];
+
+let _historySyncState: {
+  scope: "current" | "all";
+  done: number;
+  total: number;
+} | null = null;
+
+async function findChatGPTTab(preferConversation: boolean) {
+  const tabs = await chrome.tabs.query({ url: CHATGPT_TAB_URLS });
+  if (!tabs.length) return undefined;
+  const live = tabs.filter((tab) => tab.id != null && !tab.discarded);
+  const pool = live.length > 0 ? live : tabs;
+  if (preferConversation) {
+    const convTab = pool.find((tab) => (tab.url ?? "").includes("/c/"));
+    if (convTab) return convTab;
+  }
+  return pool[0];
+}
+
+async function broadcastHistoryProgress(payload: {
+  done: number;
+  total: number;
+  currentTitle?: string;
+  error?: string;
+}): Promise<void> {
+  try {
+    const message = {
+      type: "HISTORY_SYNC_PROGRESS",
+      payload: {
+        scope: _historySyncState?.scope ?? ("all" as const),
+        ...payload,
+      },
+    };
+    // Extension pages (popup, memory graph tab)
+    chrome.runtime.sendMessage(message).catch(() => void 0);
+    // Content scripts on AI tabs (floating panel)
+    chrome.tabs.query({ url: AI_ORIGINS.map((o) => `${o}/*`) }, (tabs) => {
+      for (const tab of tabs) {
+        if (tab.id) {
+          chrome.tabs.sendMessage(tab.id, message).catch(() => void 0);
+        }
+      }
+    });
+  } catch {
+    // best effort
+  }
+}
+
+async function handleSyncChatGPTHistory(
+  message: SyncChatGPTHistoryRequest,
+  senderTabId?: number,
+): Promise<SyncChatGPTHistoryResponse> {
+  try {
+    const scope = message.payload.scope === "all" ? "all" : "current";
+    // Prefer the tab that sent the request (the floating panel's own tab), so
+    // "save current conversation" syncs the conversation open in THAT tab
+    // even when several ChatGPT tabs are open.
+    let tab: chrome.tabs.Tab | undefined;
+    if (senderTabId != null) {
+      try {
+        tab = await chrome.tabs.get(senderTabId);
+      } catch {
+        tab = undefined; // tab closed meanwhile
+      }
+    }
+    if (!tab) {
+      tab = await findChatGPTTab(scope === "current");
+    }
+    if (!tab?.id) {
+      return {
+        type: "SYNC_CHATGPT_HISTORY_RESPONSE",
+        payload: {
+          success: false,
+          error: "NO_CHATGPT_TAB: 请先打开 chatgpt.com 页面",
+        },
+      };
+    }
+    const request: FetchChatGPTHistory = {
+      type: "FETCH_CHATGPT_HISTORY",
+      payload: {
+        scope,
+        forcePersist: message.payload.forcePersist === true,
+        sessionId: message.payload.sessionId,
+      },
+    };
+    const response = (await chrome.tabs
+      .sendMessage(tab.id, request)
+      .catch(() => undefined)) as
+      | { success?: boolean; error?: string }
+      | undefined;
+    if (!response || response.success !== true) {
+      return {
+        type: "SYNC_CHATGPT_HISTORY_RESPONSE",
+        payload: {
+          success: false,
+          error: response?.error ?? "CONTENT_SCRIPT_UNAVAILABLE",
+        },
+      };
+    }
+    _historySyncState = { scope, done: 0, total: 0 };
+    return {
+      type: "SYNC_CHATGPT_HISTORY_RESPONSE",
+      payload: { success: true },
+    };
+  } catch (err) {
+    return {
+      type: "SYNC_CHATGPT_HISTORY_RESPONSE",
+      payload: { success: false, error: String(err) },
+    };
+  }
+}
+
+async function handleChatGPTHistoryConversation(
+  message: ChatGPTHistoryConversation,
+): Promise<{ success: boolean; added: number; error?: string }> {
+  try {
+    const records = message.payload.records as MemoryRecord[];
+    const forcePersist = message.payload.forcePersist === true;
+
+    // In manual mode, new history lands in the pending cache for review
+    // unless the user explicitly chose "save now".
+    if (!forcePersist && (await getCaptureMode()) === "manual") {
+      await cachePendingRecords(records);
+      const state = _historySyncState ?? { scope: "all" as const, done: 0, total: 0 };
+      state.done += 1;
+      state.total = Math.max(state.total, message.payload.total ?? state.done);
+      _historySyncState = state;
+      void broadcastHistoryProgress({
+        done: state.done,
+        total: state.total,
+        currentTitle: message.payload.title,
+      });
+      return { success: true, added: 0 };
+    }
+
+    const result = await persistChatGPTConversation(
+      records,
+      message.payload.title,
+    );
+    // The user explicitly chose "save now" — drop the pending cache entry so
+    // the session doesn't appear both as pending and as saved.
+    const sessionId = records[0]?.sessionId;
+    if (sessionId) {
+      await deletePendingSession(sessionId);
+    }
+    const state = _historySyncState ?? { scope: "all" as const, done: 0, total: 0 };
+    state.done += 1;
+    state.total = Math.max(state.total, message.payload.total ?? state.done);
+    _historySyncState = state;
+    void broadcastHistoryProgress({
+      done: state.done,
+      total: state.total,
+      currentTitle: message.payload.title,
+    });
+    void broadcastStatusUpdate();
+    return { success: true, added: result.added };
+  } catch (err) {
+    return { success: false, added: 0, error: String(err) };
+  }
+}
+
+async function handleChatGPTHistoryDone(message: {
+  type: "CHATGPT_HISTORY_DONE";
+  payload: { scope: "current" | "all"; total: number; error?: string };
+}): Promise<{ success: boolean }> {
+  const { total, error } = message.payload;
+  void broadcastHistoryProgress({ done: total, total, error });
+  _historySyncState = null;
+  void broadcastStatusUpdate();
+  return { success: true };
+}
+
+async function handlePersistAllPending(): Promise<PersistAllPendingResponse> {
+  try {
+    const sessionIds = await listPendingSessionIds();
+    let count = 0;
+    for (const sessionId of sessionIds) {
+      const result = await persistPendingSession(sessionId);
+      count += result.count;
+    }
+    if (sessionIds.length > 0) {
+      void hydrateSearchIndex();
+      void broadcastStatusUpdate();
+    }
+    return {
+      type: "PERSIST_ALL_PENDING_RESPONSE",
+      payload: { success: true, count },
+    };
+  } catch (err) {
+    return {
+      type: "PERSIST_ALL_PENDING_RESPONSE",
       payload: { success: false, count: 0, error: String(err) },
     };
   }
@@ -593,7 +807,7 @@ async function handleImportMemories(message: ImportMemoriesRequest) {
 
 // ─── Message Router ───────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case "CAPTURE_MESSAGE":
       handleCaptureMessage(message as CaptureMessage)
@@ -743,6 +957,49 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         );
       return true;
 
+    case "START_BULK_DELETE_MODE": {
+      const forwardToTab = (tabId: number) => {
+        chrome.tabs.sendMessage(
+          tabId,
+          {
+            type: "BEGIN_BULK_DELETE_MODE",
+            payload: { lang: message.payload?.lang },
+          },
+          (response) => {
+            const error = chrome.runtime.lastError;
+            sendResponse(
+              error
+                ? {
+                    type: "START_BULK_DELETE_MODE_RESPONSE",
+                    payload: { success: false, error: error.message ?? "No supported page is active" },
+                  }
+                : response ?? {
+                    type: "START_BULK_DELETE_MODE_RESPONSE",
+                    payload: { success: false, error: "No supported page is active" },
+                  },
+            );
+          },
+        );
+      };
+
+      if (sender.tab?.id != null) {
+        forwardToTab(sender.tab.id);
+      } else {
+        chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+          const tabId = tabs[0]?.id;
+          if (tabId == null) {
+            sendResponse({
+              type: "START_BULK_DELETE_MODE_RESPONSE",
+              payload: { success: false, error: "No active tab" },
+            });
+            return;
+          }
+          forwardToTab(tabId);
+        });
+      }
+      return true;
+    }
+
     case "UPDATE_CONVERSATION_TITLE":
       handleUpdateConversationTitle(message as UpdateConversationTitleRequest)
         .then(sendResponse)
@@ -840,6 +1097,50 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({
             type: "DOM_SYNC_RESPONSE",
             payload: { queued: 0, skipped: 0, error: String(err) },
+          }),
+        );
+      return true;
+
+    case "SYNC_CHATGPT_HISTORY":
+      handleSyncChatGPTHistory(
+        message as SyncChatGPTHistoryRequest,
+        sender.tab?.id,
+      )
+        .then(sendResponse)
+        .catch((err) =>
+          sendResponse({
+            type: "SYNC_CHATGPT_HISTORY_RESPONSE",
+            payload: { success: false, error: String(err) },
+          }),
+        );
+      return true;
+
+    case "CHATGPT_HISTORY_CONVERSATION":
+      handleChatGPTHistoryConversation(message as ChatGPTHistoryConversation)
+        .then(sendResponse)
+        .catch((err) =>
+          sendResponse({ success: false, added: 0, error: String(err) }),
+        );
+      return true;
+
+    case "CHATGPT_HISTORY_DONE":
+      handleChatGPTHistoryDone(
+        message as {
+          type: "CHATGPT_HISTORY_DONE";
+          payload: { scope: "current" | "all"; total: number; error?: string };
+        },
+      )
+        .then(sendResponse)
+        .catch(() => sendResponse({ success: false }));
+      return true;
+
+    case "PERSIST_ALL_PENDING":
+      handlePersistAllPending()
+        .then(sendResponse)
+        .catch((err) =>
+          sendResponse({
+            type: "PERSIST_ALL_PENDING_RESPONSE",
+            payload: { success: false, count: 0, error: String(err) },
           }),
         );
       return true;

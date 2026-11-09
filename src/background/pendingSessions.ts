@@ -220,3 +220,9 @@ export async function deletePendingSession(sessionId: string): Promise<boolean> 
   await writePendingMap(pending);
   return existed;
 }
+
+/** Returns the ids of every pending (manual-mode) session. */
+export async function listPendingSessionIds(): Promise<string[]> {
+  const pending = await readPendingMap();
+  return Object.keys(pending);
+}

@@ -1,6 +1,6 @@
 import type { DomMessage, DomSyncRequest, DomSyncResponse } from "../types/messages";
 import type { MemoryRecord } from "../types/memory";
-import { expandToChunks } from "./chunking";
+import { expandToChunks, CHUNK_SIZE_CHARS } from "./chunking";
 import { queueEmbedding } from "./offscreen";
 import { safeAddRecord, isCaptureEnabled, db } from "./db";
 import { miniSearch } from "./search";
@@ -431,6 +431,65 @@ export async function handleDomSync(
       }),
     ),
   );
+
+  // Correct truncated/edited content on already-stored messages: a bubble
+  // scanned mid-stream holds partial text, and edits change the text in
+  // place. When the stored text changed, drop the stale index entries and
+  // re-enqueue so chunks + embedding are rebuilt from the new text.
+  const refreshedIds = new Set<string>();
+  for (const msg of messages) {
+    const result = await db.replaceDomMessageContent(msg.messageId, msg.content);
+    if (!result.changed) continue;
+    for (const removed of result.removedRecords) {
+      try {
+        miniSearch.remove(removed);
+      } catch {
+        /* not indexed */
+      }
+    }
+    refreshedIds.add(msg.messageId);
+  }
+  if (refreshedIds.size > 0) {
+    for (const msg of messages) {
+      if (!refreshedIds.has(msg.messageId)) continue;
+      const refreshedRecord: MemoryRecord = {
+        id: msg.messageId,
+        role: msg.role,
+        content: msg.content,
+        provider,
+        sessionId: msg.sessionId,
+        originalMessageId: msg.messageId,
+        parentMessageId: msg.parentMessageId,
+        source: "dom_scan",
+        sourceUrl: url,
+        conversationTitle: msg.pageTitle,
+        timestamp: msg.scannedAt,
+        createdAt: Date.now(),
+        turnIndex: msg.turnIndex,
+        roundIndex: msg.roundIndex,
+        branchIndex: msg.branchIndex,
+        branchId: msg.branchId,
+        pathId: msg.pathId,
+        isPartial: false,
+        isDeleted: false,
+        isSuperseded: false,
+        metadata: domGraphMetadata(msg, url),
+      };
+      if (refreshedRecord.content.length <= CHUNK_SIZE_CHARS) {
+        // Short content: the parent record was updated in place by
+        // replaceDomMessageContent — only re-index + re-embed it.
+        try {
+          miniSearch.add(refreshedRecord);
+        } catch {
+          /* duplicate id */
+        }
+        queueEmbedding(refreshedRecord);
+      } else {
+        // Long content: chunk records were deleted — rebuild them.
+        enqueueSyncRecord(refreshedRecord);
+      }
+    }
+  }
 
   const newMessages = messages.filter((m) => newIds.has(m.messageId));
 

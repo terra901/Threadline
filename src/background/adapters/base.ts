@@ -30,11 +30,26 @@ export function generateRecordId(): string {
 
 /**
  * Strips HTML tags and normalizes whitespace in a content string.
+ * Used for content *comparisons* (dedup), where collapsing whitespace makes
+ * equivalent texts match regardless of formatting differences.
  */
 export function normalizeContent(raw: string): string {
   return raw
     .replace(/<[^>]*>/g, '')     // strip HTML tags
     .replace(/\s+/g, ' ')        // collapse whitespace
+    .trim()
+}
+
+/**
+ * Sanitizes content for *storage*: strips any stray HTML tags but preserves
+ * the original line breaks, indentation and spacing — ChatGPT/Gemini/Claude
+ * deliver markdown source (headings, code fences, tables) that must survive
+ * intact for the memory graph to render it like the original page.
+ */
+export function sanitizeContent(raw: string): string {
+  return raw
+    .replace(/<[^>]*>/g, '')     // defensive: strip HTML tags
+    .replace(/\r\n/g, '\n')
     .trim()
 }
 

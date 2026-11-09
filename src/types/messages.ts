@@ -333,6 +333,21 @@ export interface ClearAllMemoriesResponse {
   payload: { success: boolean; error?: string }
 }
 
+export interface StartBulkDeleteModeRequest {
+  type: 'START_BULK_DELETE_MODE'
+  payload: { lang: string }
+}
+
+export interface BeginBulkDeleteModeRequest {
+  type: 'BEGIN_BULK_DELETE_MODE'
+  payload: { lang: string }
+}
+
+export interface StartBulkDeleteModeResponse {
+  type: 'START_BULK_DELETE_MODE_RESPONSE'
+  payload: { success: boolean; error?: string }
+}
+
 // ─── DOM_SYNC ─────────────────────────────────────────────────────────────────
 // Direction: Content Script → Background Service Worker
 // Triggered on page-load / SPA-navigation / settled DOM changes to sync
@@ -393,6 +408,85 @@ export interface DomSyncResponse {
   }
 }
 
+// ─── ChatGPT backend-API history sync ─────────────────────────────────────────
+// Direction: UI → Background → ChatGPT content script → Background → UI
+//
+// The content script performs the actual fetches (page context, so the
+// ChatGPT session cookies are attached), parses each conversation's full
+// mapping, and streams per-conversation record batches back to the
+// background, which persists them with dedup and broadcasts progress.
+
+export interface SyncChatGPTHistoryRequest {
+  type: 'SYNC_CHATGPT_HISTORY'
+  payload: {
+    /** 'current' = the open conversation only; 'all' = entire sidebar history */
+    scope: 'current' | 'all'
+    /** When true, records are persisted directly regardless of capture mode */
+    forcePersist?: boolean
+    /** Optional session id (openai:<uuid>) of the conversation to sync */
+    sessionId?: string
+  }
+}
+
+export interface SyncChatGPTHistoryResponse {
+  type: 'SYNC_CHATGPT_HISTORY_RESPONSE'
+  payload: { success: boolean; error?: string }
+}
+
+/** Background → ChatGPT content script: start fetching backend-API history. */
+export interface FetchChatGPTHistory {
+  type: 'FETCH_CHATGPT_HISTORY'
+  payload: {
+    scope: 'current' | 'all'
+    forcePersist?: boolean
+    sessionId?: string
+  }
+}
+
+/** Content script → Background: one parsed conversation ready to persist. */
+export interface ChatGPTHistoryConversation {
+  type: 'CHATGPT_HISTORY_CONVERSATION'
+  payload: {
+    sessionId: string
+    title?: string
+    records: SerializableMemoryRecord[]
+    /** When true, persist directly even in manual capture mode */
+    forcePersist?: boolean
+    /** Total conversations in the current sync run (for progress) */
+    total?: number
+  }
+}
+
+/** Content script → Background: fetch loop finished (or failed). */
+export interface ChatGPTHistoryDone {
+  type: 'CHATGPT_HISTORY_DONE'
+  payload: { scope: 'current' | 'all'; total: number; error?: string }
+}
+
+/** Background → UI (panel / graph / popup): sync progress broadcast. */
+export interface HistorySyncProgress {
+  type: 'HISTORY_SYNC_PROGRESS'
+  payload: {
+    scope: 'current' | 'all'
+    done: number
+    total: number
+    currentTitle?: string
+    error?: string
+  }
+}
+
+// ─── PERSIST_ALL_PENDING ──────────────────────────────────────────────────────
+// Direction: UI → Background — save every manual-mode pending session.
+
+export interface PersistAllPendingRequest {
+  type: 'PERSIST_ALL_PENDING'
+}
+
+export interface PersistAllPendingResponse {
+  type: 'PERSIST_ALL_PENDING_RESPONSE'
+  payload: { success: boolean; count: number; error?: string }
+}
+
 // ─── Union Types ──────────────────────────────────────────────────────────────
 
 export type ExtensionMessage =
@@ -405,6 +499,9 @@ export type ExtensionMessage =
   | ClearErrorsResponse
   | ClearAllMemoriesRequest
   | ClearAllMemoriesResponse
+  | StartBulkDeleteModeRequest
+  | BeginBulkDeleteModeRequest
+  | StartBulkDeleteModeResponse
   | UpdateConversationTitleRequest
   | UpdateConversationTitleResponse
   | GetConversationTitlesRequest
@@ -439,12 +536,21 @@ export type ExtensionMessage =
   | ImportMemoriesResponse
   | DomSyncRequest
   | DomSyncResponse
+  | SyncChatGPTHistoryRequest
+  | SyncChatGPTHistoryResponse
+  | FetchChatGPTHistory
+  | ChatGPTHistoryConversation
+  | ChatGPTHistoryDone
+  | HistorySyncProgress
+  | PersistAllPendingRequest
+  | PersistAllPendingResponse
 
 export type ExtensionMessageResponse =
   | CaptureMessageResponse
   | EmbedResponse
   | ClearErrorsResponse
   | ClearAllMemoriesResponse
+  | StartBulkDeleteModeResponse
   | UpdateConversationTitleResponse
   | GetConversationTitlesResponse
   | QueryMemorySessionsResponse
@@ -461,3 +567,5 @@ export type ExtensionMessageResponse =
   | ExportMemoriesResponse
   | ImportMemoriesResponse
   | DomSyncResponse
+  | SyncChatGPTHistoryResponse
+  | PersistAllPendingResponse

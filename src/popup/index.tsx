@@ -84,6 +84,60 @@ function App() {
   const goBack = useCallback(() => setView('main'), [])
   const openSettings = useCallback(() => setView('settings'), [])
 
+  // ChatGPT history sync progress (HISTORY_SYNC_PROGRESS broadcast)
+  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number; currentTitle?: string } | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  useEffect(() => {
+    const listener = (message: unknown) => {
+      const progress = message as { type?: string; payload?: { done?: number; total?: number; currentTitle?: string; error?: string } }
+      if (progress?.type !== 'HISTORY_SYNC_PROGRESS') return
+      const { done = 0, total = 0, error, currentTitle } = progress.payload ?? {}
+      if (error) {
+        setSyncError(error)
+        setSyncProgress(null)
+        return
+      }
+      setSyncError(null)
+      if (total > 0) {
+        setSyncProgress({ done, total, currentTitle })
+        if (done >= total) {
+          window.setTimeout(() => setSyncProgress(null), 3000)
+        }
+      } else {
+        setSyncProgress(null)
+      }
+    }
+    chrome.runtime.onMessage.addListener(listener)
+    return () => chrome.runtime.onMessage.removeListener(listener)
+  }, [])
+
+  const handleSaveCurrentConversation = useCallback(() => {
+    const sessionId = activeTabUrl ? inferSessionIdFromUrl(activeTabUrl) : undefined
+    chrome.runtime.sendMessage(
+      { type: 'SYNC_CHATGPT_HISTORY', payload: { scope: 'current', forcePersist: true, sessionId } },
+      () => {
+        try {
+          void chrome.runtime.lastError
+        } catch {
+          /* ignore */
+        }
+      },
+    )
+  }, [activeTabUrl])
+
+  const handleSyncChatGPTHistory = useCallback(() => {
+    chrome.runtime.sendMessage(
+      { type: 'SYNC_CHATGPT_HISTORY', payload: { scope: 'all', forcePersist: true } },
+      () => {
+        try {
+          void chrome.runtime.lastError
+        } catch {
+          /* ignore */
+        }
+      },
+    )
+  }, [])
+
   // Slot order: settings(0) | main(1) | detail(2)
   // Settings slides in from the left, detail slides in from the right — no cross-over.
   const slideIndex = view === 'settings' ? 0 : view === 'main' ? 1 : 2
@@ -161,7 +215,16 @@ function App() {
             <MemoryMenuContent
               onOpenGraph={handleOpenGraph}
               onOpenFolder={() => setView('folder')}
+              onSaveCurrentConversation={handleSaveCurrentConversation}
+              onSyncChatGPTHistory={handleSyncChatGPTHistory}
+              syncProgress={syncProgress}
             />
+
+            {syncError && (
+              <div style={{ fontSize: 12, color: tk.errorText, backgroundColor: tk.errorBg, border: `1px solid ${tk.errorText}`, borderRadius: 10, padding: '8px 10px', marginTop: 4 }}>
+                {t.syncChatGPTHistoryFailed(syncError)}
+              </div>
+            )}
           </div>
         </div>
 

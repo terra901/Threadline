@@ -13,6 +13,7 @@ import type {
   ClearAllMemoriesResponse,
   GetAttachmentSaveModeResponse,
   GetCaptureModeResponse,
+  StartBulkDeleteModeResponse,
   SetAttachmentSaveModeResponse,
   SetCaptureModeResponse,
 } from '../../types/messages'
@@ -21,12 +22,13 @@ import type {
 
 interface SettingsViewProps {
   onBack: () => void
+  onBulkDeleteStarted?: () => void
   onAllDeleted?: () => void
   width?: number
 }
 
-export function SettingsView({ onBack, onAllDeleted, width }: SettingsViewProps) {
-  const { t } = useTranslation()
+export function SettingsView({ onBack, onBulkDeleteStarted, onAllDeleted, width }: SettingsViewProps) {
+  const { t, lang } = useTranslation()
   const { theme } = useTheme()
   const tk = getThemeTokens(theme)
 
@@ -36,7 +38,9 @@ export function SettingsView({ onBack, onAllDeleted, width }: SettingsViewProps)
   const [attachmentMode, setAttachmentMode] = useState<AttachmentSaveMode>(DEFAULT_ATTACHMENT_SAVE_MODE)
   const [savingMode, setSavingMode] = useState(false)
   const [savingAttachmentMode, setSavingAttachmentMode] = useState(false)
-  const [recallEnabled, setRecallEnabled] = useState(true)
+  const [recallEnabled, setRecallEnabled] = useState(false)
+  const [bulkDeleteStarting, setBulkDeleteStarting] = useState(false)
+  const [bulkDeleteStatus, setBulkDeleteStatus] = useState<string | null>(null)
   const [deleteStatus, setDeleteStatus] = useState<string | null>(null)
   const [modeToast, setModeToast] = useState<{ type: 'success' | 'error'; mode?: CaptureMode; message: string } | null>(null)
   const modeToastTimerRef = useRef<number | null>(null)
@@ -49,7 +53,7 @@ export function SettingsView({ onBack, onAllDeleted, width }: SettingsViewProps)
       if (response?.payload?.mode) setAttachmentMode(response.payload.mode)
     })
     chrome.storage.local.get([RECALL_BUTTON_ENABLED_KEY], (res) => {
-      setRecallEnabled(res[RECALL_BUTTON_ENABLED_KEY] !== false)
+      setRecallEnabled(res[RECALL_BUTTON_ENABLED_KEY] === true)
     })
   }, [])
 
@@ -121,6 +125,27 @@ export function SettingsView({ onBack, onAllDeleted, width }: SettingsViewProps)
       setDeleteStatus(t.deleteAllFailed(String(err)))
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const startBulkDelete = async () => {
+    if (bulkDeleteStarting) return
+    setBulkDeleteStarting(true)
+    setBulkDeleteStatus(null)
+    try {
+      const response = await new Promise<StartBulkDeleteModeResponse | undefined>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'START_BULK_DELETE_MODE', payload: { lang } }, resolve)
+      })
+      if (response?.payload?.success) {
+        setBulkDeleteStatus(t.bulkDeleteStarted)
+        onBulkDeleteStarted?.()
+      } else {
+        setBulkDeleteStatus(t.bulkDeleteStartFailed(response?.payload?.error ?? 'unknown'))
+      }
+    } catch (err) {
+      setBulkDeleteStatus(t.bulkDeleteStartFailed(String(err)))
+    } finally {
+      setBulkDeleteStarting(false)
     }
   }
 
@@ -279,6 +304,28 @@ export function SettingsView({ onBack, onAllDeleted, width }: SettingsViewProps)
             }}
           />
         </button>
+      </div>
+
+      <div style={{ borderRadius: 12, border: '1px solid', borderColor: tk.errorText, backgroundColor: tk.bgCard, padding: '14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: tk.text }}>{t.bulkDeletePlatformChats}</div>
+            <div style={{ fontSize: 12, lineHeight: 1.45, color: tk.textMuted }}>{t.bulkDeletePlatformChatsDesc}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void startBulkDelete()}
+            disabled={bulkDeleteStarting}
+            style={{ ...actionBtn, flex: '0 0 auto', padding: '8px 12px', backgroundColor: tk.errorText, borderColor: tk.errorText, color: '#fff', opacity: bulkDeleteStarting ? 0.65 : 1 }}
+          >
+            {bulkDeleteStarting ? t.bulkDeleteStarting : t.bulkDeleteStart}
+          </button>
+        </div>
+        {bulkDeleteStatus && (
+          <div role="status" aria-live="polite" style={{ fontSize: 12, color: bulkDeleteStatus.startsWith('✕') ? tk.errorText : tk.textMuted }}>
+            {bulkDeleteStatus}
+          </div>
+        )}
       </div>
 
       {/* Danger Zone */}

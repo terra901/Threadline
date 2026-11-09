@@ -3,6 +3,7 @@ import {
   generateRecordId,
   generateSessionId,
   normalizeContent,
+  sanitizeContent,
   type IAdapter,
 } from './base'
 
@@ -99,7 +100,7 @@ export class GeminiAdapter implements IAdapter {
       records.push({
         id,
         role: role === 'user' ? 'user' : 'assistant',
-        content: normalizeContent(content),
+        content: sanitizeContent(content),
         provider: 'google',
         sessionId,
         timestamp: ts,
@@ -146,7 +147,7 @@ export class GeminiAdapter implements IAdapter {
       records.push({
         id: generateRecordId(),
         role: 'assistant',
-        content: normalizeContent(text),
+        content: sanitizeContent(text),
         provider: 'google',
         sessionId,
         timestamp,
@@ -184,7 +185,7 @@ export class GeminiAdapter implements IAdapter {
     const record: MemoryRecord = {
       id,
       role: role === 'user' ? 'user' : 'assistant',
-      content: normalizeContent(content),
+      content: sanitizeContent(content),
       provider: 'google',
       sessionId: generateSessionId('google', conversationId),
       timestamp,

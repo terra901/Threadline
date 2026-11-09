@@ -69,8 +69,8 @@ describe('ClaudeAdapter.parse — Anthropic API message format', () => {
     )
 
     expect(records).toHaveLength(1)
-    // normalizeContent collapses whitespace, so the joined newline becomes a space
-    expect(records[0].content).toBe('First block Second block')
+    // sanitizeContent preserves the joined newline (markdown-friendly storage)
+    expect(records[0].content).toBe('First block\nSecond block')
   })
 
   it('returns [] for empty content blocks', () => {

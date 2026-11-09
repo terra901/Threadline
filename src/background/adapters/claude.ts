@@ -5,6 +5,7 @@ import {
   generateRecordId,
   generateSessionId,
   normalizeContent,
+  sanitizeContent,
   type IAdapter,
 } from './base'
 
@@ -78,7 +79,7 @@ export class ClaudeAdapter implements IAdapter {
     const record: MemoryRecord = {
       id: generateRecordId(),
       role: 'assistant',
-      content: normalizeContent(text),
+      content: sanitizeContent(text),
       provider: 'anthropic',
       sessionId: generateSessionId('anthropic', id),
       model: data['model'] as string | undefined,
@@ -103,7 +104,7 @@ export class ClaudeAdapter implements IAdapter {
     const record: MemoryRecord = {
       id: generateRecordId(),
       role: role === 'human' || role === 'user' ? 'user' : 'assistant',
-      content: normalizeContent(content),
+      content: sanitizeContent(content),
       provider: 'anthropic',
       sessionId: generateSessionId('anthropic', conversationId),
       model: data['model'] as string | undefined,
@@ -160,7 +161,7 @@ export class ClaudeAdapter implements IAdapter {
       records.push({
         id: msgUuid,
         role: sender === 'human' ? 'user' : 'assistant',
-        content: normalizeContent(text),
+        content: sanitizeContent(text),
         provider: 'anthropic',
         sessionId,
         parentMessageId: parentMessageUuid || undefined,

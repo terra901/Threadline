@@ -215,8 +215,8 @@ describe('GeminiAdapter.parse — API response (generateContent)', () => {
     )
 
     expect(records).toHaveLength(1)
-    // normalizeContent collapses the joined newline into a space
-    expect(records[0].content).toBe('First part Second part')
+    // sanitizeContent preserves the joined newline (markdown-friendly storage)
+    expect(records[0].content).toBe('First part\nSecond part')
   })
 
   it('returns [] for empty candidates array', () => {

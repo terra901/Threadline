@@ -3,6 +3,7 @@ import {
   generateRecordId,
   generateSessionId,
   normalizeContent,
+  sanitizeContent,
   type IAdapter,
 } from './base'
 
@@ -90,7 +91,7 @@ export class ChatGPTAdapter implements IAdapter {
     const record: MemoryRecord = {
       id: generateRecordId(),
       role: role === 'user' ? 'user' : 'assistant',
-      content: normalizeContent(content),
+      content: sanitizeContent(content),
       provider: 'openai',
       sessionId,
       model,
@@ -124,7 +125,7 @@ export class ChatGPTAdapter implements IAdapter {
     const record: MemoryRecord = {
       id: generateRecordId(),
       role,
-      content: normalizeContent(text),
+      content: sanitizeContent(text),
       provider: 'openai',
       sessionId: generateSessionId('openai', conversationId),
       timestamp,
@@ -155,7 +156,7 @@ export class ChatGPTAdapter implements IAdapter {
     const record: MemoryRecord = {
       id: typeof messageId === 'string' && messageId.trim() ? messageId.trim() : generateRecordId(),
       role: role === 'user' ? 'user' : 'assistant',
-      content: normalizeContent(content),
+      content: sanitizeContent(content),
       provider: 'openai',
       sessionId: generateSessionId('openai', conversationId),
       originalMessageId: typeof messageId === 'string' && messageId.trim() ? messageId.trim() : undefined,

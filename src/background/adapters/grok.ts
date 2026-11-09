@@ -3,6 +3,7 @@ import {
   generateRecordId,
   generateSessionId,
   normalizeContent,
+  sanitizeContent,
   type IAdapter,
 } from './base'
 
@@ -63,7 +64,7 @@ export class GrokAdapter implements IAdapter {
     const record: MemoryRecord = {
       id: messageId ? `grok-${messageId}` : generateRecordId(),
       role: role === 'user' ? 'user' : 'assistant',
-      content: normalizeContent(content),
+      content: sanitizeContent(content),
       provider: 'xai',
       sessionId: generateSessionId('xai', conversationId),
       originalMessageId: messageId,
@@ -114,7 +115,7 @@ export class GrokAdapter implements IAdapter {
       records.push({
         id: responseId ? `grok-${responseId}` : generateRecordId(),
         role: sender === 'human' ? 'user' : 'assistant',
-        content: normalizeContent(message),
+        content: sanitizeContent(message),
         provider: 'xai',
         sessionId,
         originalMessageId: responseId,

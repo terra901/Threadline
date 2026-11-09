@@ -1,7 +1,7 @@
 {
   "name": "threadline",
   "displayName": "Threadline",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "Save, search, recall, and map AI conversations locally in your browser.",
   "author": "terra901",
   "repository": {
@@ -28,17 +28,24 @@
     "lucide-react": "^0.575.0",
     "minisearch": "^7.2.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "turndown": "^7.2.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.1",
     "@types/chrome": "^0.0.323",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@types/turndown": "^5.0.6",
     "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.6.2",
+    "path-browserify": "^1.0.0",
     "plasmo": "^0.90.4",
+    "process": "^0.11.10",
     "typescript": "^5.7.3",
+    "url": "^0.11.0",
     "vitest": "^3.0.7"
   },
   "pnpm": {
@@ -51,7 +58,14 @@
       "msgpackr-extract",
       "protobufjs",
       "sharp"
-    ]
+    ],
+    "overrides": {
+      "vfile": "6.0.2"
+    },
+    "patchedDependencies": {
+      "vfile@6.0.2": "patches/vfile@6.0.2.patch",
+      "math-intrinsics@1.1.0": "patches/math-intrinsics@1.1.0.patch"
+    }
   },
   "manifest": {
     "host_permissions": [
