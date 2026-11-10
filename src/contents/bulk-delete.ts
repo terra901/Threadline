@@ -536,6 +536,27 @@ function waitFor<T>(read: () => T | null, timeoutMs: number): Promise<T | null> 
   });
 }
 
+export function dispatchPointerClick(element: HTMLElement): void {
+  element.focus();
+  const view = element.ownerDocument.defaultView ?? window;
+  const pointerInit = {
+    bubbles: true,
+    cancelable: true,
+    view,
+    button: 0,
+    pointerId: 1,
+    pointerType: "mouse",
+    isPrimary: true,
+  };
+  const mouseInit = { bubbles: true, cancelable: true, view, button: 0 };
+  const PointerEventCtor = view.PointerEvent ?? MouseEvent;
+  element.dispatchEvent(new PointerEventCtor("pointerdown", { ...pointerInit, buttons: 1 }));
+  element.dispatchEvent(new MouseEvent("mousedown", { ...mouseInit, buttons: 1 }));
+  element.dispatchEvent(new PointerEventCtor("pointerup", { ...pointerInit, buttons: 0 }));
+  element.dispatchEvent(new MouseEvent("mouseup", { ...mouseInit, buttons: 0 }));
+  element.dispatchEvent(new MouseEvent("click", mouseInit));
+}
+
 function isRenderedInDocument(element: HTMLElement): boolean {
   let current: HTMLElement | null = element;
   while (current) {
@@ -571,11 +592,11 @@ async function clearLocalMemory(sessionId: string): Promise<boolean> {
 }
 
 async function deleteOneConversation(entry: ConversationEntry): Promise<boolean> {
-  entry.menuButton.click();
+  dispatchPointerClick(entry.menuButton);
   const menuAction = await waitFor(findVisibleMenuDeleteAction, 5000);
   if (!menuAction) return false;
 
-  menuAction.click();
+  dispatchPointerClick(menuAction);
   const nextStep = await waitFor(
     () => {
       const dialog = findVisibleDeleteDialog();
@@ -589,7 +610,7 @@ async function deleteOneConversation(entry: ConversationEntry): Promise<boolean>
   if (nextStep.kind === "dialog") {
     const confirmButton = getVisibleDeleteAction(nextStep.dialog);
     if (!confirmButton) return false;
-    confirmButton.click();
+    dispatchPointerClick(confirmButton);
   }
 
   const removed = await waitFor(

@@ -3,6 +3,7 @@ import {
   MAX_BULK_DELETE_SELECTION,
   parseProviderConversationRef,
   conversationStillExists,
+  dispatchPointerClick,
 } from '../../../src/contents/bulk-delete'
 import { getBulkDeleteCopy } from '../../../src/utils/bulk-delete-copy'
 
@@ -50,5 +51,17 @@ describe('bulk delete removal detection', () => {
 
     expect(conversationStillExists('stale')).toBe(false)
     expect(conversationStillExists('live')).toBe(true)
+  })
+
+  it('dispatches the pointer sequence required by ChatGPT menu buttons', () => {
+    const button = document.createElement('button')
+    const events: string[] = []
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+      button.addEventListener(type, () => events.push(type))
+    }
+
+    dispatchPointerClick(button)
+
+    expect(events).toEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'])
   })
 })
