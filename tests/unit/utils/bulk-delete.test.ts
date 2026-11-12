@@ -1,15 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_BULK_DELETE_SELECTION,
   parseProviderConversationRef,
   conversationStillExists,
   dispatchPointerClick,
 } from '../../../src/contents/bulk-delete'
 import { getBulkDeleteCopy } from '../../../src/utils/bulk-delete-copy'
+import {
+  BULK_DELETE_SELECTION_KEY,
+  DEFAULT_BULK_DELETE_SELECTION,
+  MAX_BULK_DELETE_SELECTION,
+  normalizeBulkDeleteSelection,
+} from '../../../src/utils/bulk-delete-settings'
 
 describe('bulk delete conversation references', () => {
-  it('limits a single batch to seven chats', () => {
-    expect(MAX_BULK_DELETE_SELECTION).toBe(7)
+  it('uses ten chats by default and caps the setting at 999', () => {
+    expect(DEFAULT_BULK_DELETE_SELECTION).toBe(10)
+    expect(MAX_BULK_DELETE_SELECTION).toBe(999)
+    expect(BULK_DELETE_SELECTION_KEY).toBe('bulkDeleteSelection')
+    expect(normalizeBulkDeleteSelection(undefined)).toBe(10)
+    expect(normalizeBulkDeleteSelection(0)).toBe(1)
+    expect(normalizeBulkDeleteSelection(1000)).toBe(999)
+    expect(normalizeBulkDeleteSelection(12.8)).toBe(12)
   })
 
   it.each([

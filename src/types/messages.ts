@@ -335,12 +335,12 @@ export interface ClearAllMemoriesResponse {
 
 export interface StartBulkDeleteModeRequest {
   type: 'START_BULK_DELETE_MODE'
-  payload: { lang: string }
+  payload: { lang: string; maxSelection: number }
 }
 
 export interface BeginBulkDeleteModeRequest {
   type: 'BEGIN_BULK_DELETE_MODE'
-  payload: { lang: string }
+  payload: { lang: string; maxSelection: number }
 }
 
 export interface StartBulkDeleteModeResponse {

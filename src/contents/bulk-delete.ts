@@ -1,7 +1,12 @@
 import { getBulkDeleteCopy } from "../utils/bulk-delete-copy";
+import {
+  DEFAULT_BULK_DELETE_SELECTION,
+  MAX_BULK_DELETE_SELECTION as MAX_BULK_DELETE_SELECTION_LIMIT,
+  normalizeBulkDeleteSelection,
+} from "../utils/bulk-delete-settings";
 import { safeRuntimeOnMessage } from "../utils/extension-context";
 
-export const MAX_BULK_DELETE_SELECTION = 7;
+export const MAX_BULK_DELETE_SELECTION = MAX_BULK_DELETE_SELECTION_LIMIT;
 
 export interface BulkDeleteConversationRef {
   provider: "openai" | "anthropic" | "google" | "perplexity" | "xai";
@@ -20,6 +25,7 @@ interface ConversationEntry extends BulkDeleteConversationRef {
 interface BulkDeleteState {
   language: string;
   providerName: string;
+  maxSelection: number;
   selected: Map<string, ConversationEntry>;
   host: HTMLElement;
   observer: MutationObserver;
@@ -280,7 +286,7 @@ function renderToolbar(): void {
     const detail = document.createElement("p");
     detail.textContent = phase === "completed"
       ? copy.success(activeState.deletedCount)
-      : copy.selectionCount(activeState.selected.size, MAX_BULK_DELETE_SELECTION);
+      : copy.selectionCount(activeState.selected.size, activeState.maxSelection);
     if (phase === "completed") {
       detail.setAttribute("role", "status");
       detail.setAttribute("aria-live", "polite");
@@ -349,9 +355,9 @@ function addCheckbox(entry: ConversationEntry): void {
   input.addEventListener("change", () => {
     if (!activeState || activeState.phase !== "selecting") return;
     if (input.checked) {
-      if (activeState.selected.size >= MAX_BULK_DELETE_SELECTION) {
+      if (activeState.selected.size >= activeState.maxSelection) {
         input.checked = false;
-        activeState.status = getCopy().maxReached(MAX_BULK_DELETE_SELECTION);
+        activeState.status = getCopy().maxReached(activeState.maxSelection);
       } else {
         activeState.selected.set(entry.id, entry);
         activeState.status = "";
@@ -414,9 +420,14 @@ function refreshCheckboxes(): void {
   entries.forEach(addCheckbox);
 }
 
-function startBulkDeleteMode(language: string): { success: boolean; error?: string } {
+function startBulkDeleteMode(
+  language: string,
+  requestedMaxSelection: unknown = DEFAULT_BULK_DELETE_SELECTION,
+): { success: boolean; error?: string } {
+  const maxSelection = normalizeBulkDeleteSelection(requestedMaxSelection);
   if (activeState) {
     activeState.language = language;
+    activeState.maxSelection = maxSelection;
     refreshCheckboxes();
     renderToolbar();
     return { success: true };
@@ -435,6 +446,7 @@ function startBulkDeleteMode(language: string): { success: boolean; error?: stri
   activeState = {
     language,
     providerName,
+    maxSelection,
     selected: new Map(),
     host,
     observer,
@@ -623,7 +635,7 @@ async function deleteOneConversation(entry: ConversationEntry): Promise<boolean>
 async function deleteSelectedConversations(): Promise<void> {
   if (!activeState || activeState.phase !== "selecting" || activeState.selected.size === 0) return;
   const selected = Array.from(activeState.selected.values());
-  if (selected.length > MAX_BULK_DELETE_SELECTION) return;
+  if (selected.length > activeState.maxSelection) return;
   activeState.phase = "deleting";
   activeState.status = "";
   removeAllCheckboxes();
@@ -668,7 +680,10 @@ async function deleteSelectedConversations(): Promise<void> {
 export function initBulkDeleteModeListener(): void {
   safeRuntimeOnMessage((message, _sender, sendResponse) => {
     if (message?.type !== "BEGIN_BULK_DELETE_MODE") return false;
-    const result = startBulkDeleteMode(String(message.payload?.lang ?? "en"));
+    const result = startBulkDeleteMode(
+      String(message.payload?.lang ?? "en"),
+      message.payload?.maxSelection,
+    );
     sendResponse({
       type: "START_BULK_DELETE_MODE_RESPONSE",
       payload: result,

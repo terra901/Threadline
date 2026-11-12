@@ -3,6 +3,11 @@ import type { CaptureMode } from '../../constants/capture'
 import type { AttachmentSaveMode } from '../../constants/attachments'
 import { DEFAULT_ATTACHMENT_SAVE_MODE } from '../../constants/attachments'
 import { RECALL_BUTTON_ENABLED_KEY } from '../../utils/recall-visibility'
+import {
+  BULK_DELETE_SELECTION_KEY,
+  DEFAULT_BULK_DELETE_SELECTION,
+  normalizeBulkDeleteSelection,
+} from '../../utils/bulk-delete-settings'
 import { useTranslation } from '../../i18n/LanguageContext'
 import { useTheme } from '../../i18n/ThemeContext'
 import { getThemeTokens } from '../../ui/theme'
@@ -41,6 +46,7 @@ export function SettingsView({ onBack, onBulkDeleteStarted, onAllDeleted, width 
   const [recallEnabled, setRecallEnabled] = useState(false)
   const [bulkDeleteStarting, setBulkDeleteStarting] = useState(false)
   const [bulkDeleteStatus, setBulkDeleteStatus] = useState<string | null>(null)
+  const [bulkDeleteSelection, setBulkDeleteSelection] = useState(String(DEFAULT_BULK_DELETE_SELECTION))
   const [deleteStatus, setDeleteStatus] = useState<string | null>(null)
   const [modeToast, setModeToast] = useState<{ type: 'success' | 'error'; mode?: CaptureMode; message: string } | null>(null)
   const modeToastTimerRef = useRef<number | null>(null)
@@ -54,6 +60,9 @@ export function SettingsView({ onBack, onBulkDeleteStarted, onAllDeleted, width 
     })
     chrome.storage.local.get([RECALL_BUTTON_ENABLED_KEY], (res) => {
       setRecallEnabled(res[RECALL_BUTTON_ENABLED_KEY] === true)
+    })
+    chrome.storage.local.get([BULK_DELETE_SELECTION_KEY], (res) => {
+      setBulkDeleteSelection(String(normalizeBulkDeleteSelection(res[BULK_DELETE_SELECTION_KEY])))
     })
   }, [])
 
@@ -134,7 +143,13 @@ export function SettingsView({ onBack, onBulkDeleteStarted, onAllDeleted, width 
     setBulkDeleteStatus(null)
     try {
       const response = await new Promise<StartBulkDeleteModeResponse | undefined>((resolve) => {
-        chrome.runtime.sendMessage({ type: 'START_BULK_DELETE_MODE', payload: { lang } }, resolve)
+        chrome.runtime.sendMessage({
+          type: 'START_BULK_DELETE_MODE',
+          payload: {
+            lang,
+            maxSelection: normalizeBulkDeleteSelection(bulkDeleteSelection),
+          },
+        }, resolve)
       })
       if (response?.payload?.success) {
         setBulkDeleteStatus(t.bulkDeleteStarted)
@@ -307,6 +322,32 @@ export function SettingsView({ onBack, onBulkDeleteStarted, onAllDeleted, width 
       </div>
 
       <div style={{ borderRadius: 12, border: '1px solid', borderColor: tk.errorText, backgroundColor: tk.bgCard, padding: '14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: tk.text }}>{t.bulkDeleteMaxSelectionLabel}</div>
+            <div style={{ fontSize: 11, lineHeight: 1.4, color: tk.textMuted }}>{t.bulkDeleteMaxSelectionDesc}</div>
+          </div>
+          <input
+            type="number"
+            min={1}
+            max={999}
+            step={1}
+            inputMode="numeric"
+            aria-label={t.bulkDeleteMaxSelectionLabel}
+            value={bulkDeleteSelection}
+            onChange={(event) => {
+              const raw = event.target.value
+              if (raw === '') {
+                setBulkDeleteSelection('')
+                return
+              }
+              const normalized = normalizeBulkDeleteSelection(raw)
+              setBulkDeleteSelection(String(normalized))
+              chrome.storage.local.set({ [BULK_DELETE_SELECTION_KEY]: normalized })
+            }}
+            style={{ width: 76, padding: '7px 8px', borderRadius: 8, border: `1px solid ${tk.border}`, backgroundColor: tk.inputBg, color: tk.text, fontSize: 13, textAlign: 'center', fontFamily: 'inherit' }}
+          />
+        </div>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: tk.text }}>{t.bulkDeletePlatformChats}</div>

@@ -963,7 +963,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           tabId,
           {
             type: "BEGIN_BULK_DELETE_MODE",
-            payload: { lang: message.payload?.lang },
+            payload: {
+              lang: message.payload?.lang,
+              maxSelection: message.payload?.maxSelection,
+            },
           },
           (response) => {
             const error = chrome.runtime.lastError;
