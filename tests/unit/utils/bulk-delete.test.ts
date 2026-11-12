@@ -18,6 +18,7 @@ describe('bulk delete conversation references', () => {
     expect(MAX_BULK_DELETE_SELECTION).toBe(999)
     expect(BULK_DELETE_SELECTION_KEY).toBe('bulkDeleteSelection')
     expect(normalizeBulkDeleteSelection(undefined)).toBe(10)
+    expect(normalizeBulkDeleteSelection('')).toBe(10)
     expect(normalizeBulkDeleteSelection(0)).toBe(1)
     expect(normalizeBulkDeleteSelection(1000)).toBe(999)
     expect(normalizeBulkDeleteSelection(12.8)).toBe(12)
